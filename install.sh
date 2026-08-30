@@ -53,9 +53,13 @@ chown root:feednode /etc/feednode/feednode.env
 fi
 
 systemctl daemon-reload
-systemctl enable feednode.service feednode-network.service feednode-kiosk.service feednode-updater.timer
+systemctl disable --now getty@tty1.service >/dev/null 2>&1 || true
+systemctl enable feednode-network.service
+systemctl enable --now feednode.service
+systemctl enable --now feednode-kiosk.service
+systemctl enable --now feednode-updater.timer
 hostnamectl set-hostname feednode
-systemctl enable avahi-daemon
+systemctl enable --now avahi-daemon
 /usr/local/bin/feednode-network ap || true
 
 printf '\nFeedNode %s installed.\nSetup AP: FeedNode-Setup\nSetup URL: http://10.42.0.1:8787/setup\nSettings after Wi-Fi setup: http://feednode.local:8787/settings\n\nTwitch is preconfigured for normal builds; connect your Twitch account from FeedNode Settings.\n' "$VERSION"
