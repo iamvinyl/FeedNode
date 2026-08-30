@@ -1,0 +1,37 @@
+{
+  "device_name": "FeedNode",
+  "subtitle": "Unified Chat Feed",
+  "layout": {
+    "orientation": "portrait",
+    "mode": "combined",
+    "order": "activity-first",
+    "split_ratio": 35,
+    "newest": "bottom"
+  },
+  "style": {
+    "font_family": "Inter",
+    "font_url": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap",
+    "background": "#080A0D",
+    "panel": "#10141A",
+    "text": "#F4F7FA",
+    "muted": "#8C98A6",
+    "accent": "#39E6D0",
+    "activity_accent": "#8C5CFF",
+    "message_size": 24,
+    "username_size": 21,
+    "event_size": 20,
+    "avatar_size": 42,
+    "radius": 10,
+    "spacing": 12,
+    "show_platform": true,
+    "show_avatars": true,
+    "show_badges": true,
+    "use_platform_colors": true,
+    "show_timestamps": false
+  },
+  "platforms": {
+    "twitch": {"enabled": true},
+    "youtube": {"enabled": false},
+    "rumble": {"enabled": false}
+  }
+}
