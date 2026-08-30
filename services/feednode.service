@@ -1,0 +1,18 @@
+[Unit]
+Description=FeedNode Unified Chat Feed
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=feednode
+Group=feednode
+WorkingDirectory=/opt/feednode
+EnvironmentFile=-/etc/feednode/feednode.env
+Environment=FEEDNODE_STATE=/var/lib/feednode
+ExecStart=/opt/feednode/venv/bin/uvicorn app:app --host 0.0.0.0 --port 8787
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
