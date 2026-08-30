@@ -1,0 +1,12 @@
+[Unit]
+Description=FeedNode update checker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=feednode
+Group=feednode
+WorkingDirectory=/opt/feednode/current
+EnvironmentFile=-/etc/feednode/feednode.env
+ExecStart=/opt/feednode/venv/bin/python /opt/feednode/current/updater/updater.py
