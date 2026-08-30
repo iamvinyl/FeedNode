@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FeedNode Release Manifest",
+  "type": "object",
+  "required": ["version", "asset", "sha256", "hardware", "reboot_required"],
+  "properties": {
+    "version": {"type": "string"},
+    "asset": {"type": "string"},
+    "sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+    "hardware": {"type": "array", "items": {"type": "string"}},
+    "reboot_required": {"type": "boolean"},
+    "min_system_version": {"type": "string"},
+    "notes": {"type": "string"}
+  }
+}
