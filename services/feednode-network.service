@@ -1,0 +1,12 @@
+[Unit]
+Description=FeedNode Network Fallback
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/feednode-firstboot-network
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
