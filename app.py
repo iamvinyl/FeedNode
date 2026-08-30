@@ -14,7 +14,7 @@ CREDS_DIR = STATE / "credentials"
 CACHE_DIR = STATE / "cache"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 DEFAULT_FILE = BASE / "config.default.json"
-ENV_FILE = Path("/etc/feednode/feednode.env")
+DISTRIBUTOR_FILE = BASE / "config" / "distributor.json"
 
 for p in (CONFIG_DIR, CREDS_DIR, CACHE_DIR): p.mkdir(parents=True, exist_ok=True)
 if not CONFIG_FILE.exists(): shutil.copy(DEFAULT_FILE, CONFIG_FILE)
@@ -24,6 +24,12 @@ def load_config():
 
 def save_config(data):
     CONFIG_FILE.write_text(json.dumps(data, indent=2))
+
+def load_distributor_config():
+    try:
+        return json.loads(DISTRIBUTOR_FILE.read_text()) if DISTRIBUTOR_FILE.exists() else {}
+    except Exception:
+        return {}
 
 def run(*args):
     return subprocess.run(args, text=True, capture_output=True)
@@ -113,7 +119,12 @@ def status():
 
 TWITCH_TOKEN = CREDS_DIR / "twitch.json"
 
-def twitch_client_id(): return os.getenv("TWITCH_CLIENT_ID", "").strip()
+def twitch_client_id():
+    override = os.getenv("TWITCH_CLIENT_ID", "").strip()
+    if override:
+        return override
+    return str(load_distributor_config().get("twitch_client_id", "")).strip()
+
 def twitch_status():
     if not TWITCH_TOKEN.exists(): return {"connected":False}
     try:
@@ -124,7 +135,7 @@ def twitch_status():
 @app.post("/api/twitch/device/start")
 async def twitch_device_start():
     cid=twitch_client_id()
-    if not cid: raise HTTPException(500,"TWITCH_CLIENT_ID is not configured by the FeedNode distributor")
+    if not cid: raise HTTPException(500,"Twitch Client ID is not configured in this FeedNode build")
     scopes="user:read:chat user:write:chat user:bot channel:read:subscriptions bits:read moderator:read:followers"
     async with httpx.AsyncClient(timeout=15) as c:
         r=await c.post("https://id.twitch.tv/oauth2/device", data={"client_id":cid,"scopes":scopes})
