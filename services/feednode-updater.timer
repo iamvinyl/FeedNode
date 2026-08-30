@@ -1,0 +1,11 @@
+[Unit]
+Description=Check for FeedNode updates twice daily
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=12h
+Persistent=true
+Unit=feednode-updater.service
+
+[Install]
+WantedBy=timers.target
