@@ -1,1 +1,57 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FeedNode Setup</title><link rel="stylesheet" href="/static/admin.css"></head><body><main class="wrap"><div class="brand"><h1>FeedNode</h1><p>Unified Chat Feed</p></div><section class="card"><h2>Connect Wi-Fi</h2><p>Select the Wi-Fi network FeedNode should use.</p><form action="/api/wifi/connect" method="post"><label>Network<select name="ssid">{% for n in networks %}<option value="{{n.ssid}}">{{n.ssid}} · {{n.signal}}%</option>{% endfor %}</select></label><label>Password<input type="password" name="password" autocomplete="current-password"></label><button>Connect FeedNode</button></form></section><p class="muted">If your network is not listed, refresh this page to rescan.</p></main></body></html>
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>FeedNode Setup</title>
+  <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+<main class="wrap">
+  <div class="brand">
+    <h1>FeedNode</h1>
+    <p>Unified Chat Feed</p>
+  </div>
+
+  <section class="card">
+    <h2>Connect Wi-Fi</h2>
+    <p>Select a detected network or type the Wi-Fi name manually.</p>
+
+    <form action="/api/wifi/connect" method="post">
+      <label>
+        Network
+        <input
+          type="text"
+          name="ssid"
+          list="wifi-networks"
+          placeholder="Wi-Fi network name (SSID)"
+          autocomplete="off"
+          autocapitalize="none"
+          spellcheck="false"
+          required>
+        <datalist id="wifi-networks">
+          {% for n in networks %}
+            {% if n.ssid and n.ssid != 'FeedNode-Setup' %}
+              <option value="{{ n.ssid }}">{{ n.signal }}%{% if n.security %} · {{ n.security }}{% endif %}</option>
+            {% endif %}
+          {% endfor %}
+        </datalist>
+      </label>
+
+      <label>
+        Password
+        <input type="password" name="password" autocomplete="current-password">
+      </label>
+
+      <button type="submit">Connect FeedNode</button>
+    </form>
+  </section>
+
+  <p class="muted">
+    FeedNode uses the same Wi-Fi radio for setup mode and normal Wi-Fi, so network scanning may be limited while the setup hotspot is active. You can always enter the SSID manually.
+  </p>
+
+  <button class="secondary" type="button" onclick="location.reload()">Rescan Networks</button>
+</main>
+</body>
+</html>
