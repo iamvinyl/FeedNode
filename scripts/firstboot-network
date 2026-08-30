@@ -1,0 +1,12 @@
+#!/bin/bash
+set -euo pipefail
+# If wlan0 has no usable client connection after boot, expose FeedNode-Setup.
+sleep 15
+if ! nmcli -t -f DEVICE,STATE dev | grep -q '^wlan0:connected$'; then
+  /usr/local/bin/feednode-network ap || true
+  exit 0
+fi
+CON=$(nmcli -t -f GENERAL.CONNECTION dev show wlan0 | cut -d: -f2-)
+if [ "$CON" = "feednode-setup" ] || [ -z "$CON" ]; then
+  /usr/local/bin/feednode-network ap || true
+fi
