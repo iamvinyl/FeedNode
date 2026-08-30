@@ -1,0 +1,31 @@
+#!/bin/bash
+set -euo pipefail
+ACTION=${1:-}
+AP_NAME="FeedNode-Setup"
+AP_CON="feednode-setup"
+WLAN="wlan0"
+case "$ACTION" in
+  ap)
+    nmcli con down "$AP_CON" >/dev/null 2>&1 || true
+    nmcli con delete "$AP_CON" >/dev/null 2>&1 || true
+    nmcli con add type wifi ifname "$WLAN" con-name "$AP_CON" autoconnect no ssid "$AP_NAME"
+    nmcli con modify "$AP_CON" 802-11-wireless.mode ap 802-11-wireless.band bg ipv4.method shared ipv6.method disabled
+    nmcli con up "$AP_CON"
+    ;;
+  connect)
+    SSID=${2:?SSID required}; PASS=${3:-}
+    nmcli con down "$AP_CON" >/dev/null 2>&1 || true
+    if [ -n "$PASS" ]; then
+      nmcli dev wifi connect "$SSID" password "$PASS" ifname "$WLAN"
+    else
+      nmcli dev wifi connect "$SSID" ifname "$WLAN"
+    fi
+    ;;
+  clear)
+    while IFS=: read -r name type; do
+      if [ "$type" = "802-11-wireless" ] && [ "$name" != "$AP_CON" ]; then nmcli con delete "$name" || true; fi
+    done < <(nmcli -t -f NAME,TYPE con show)
+    "$0" ap
+    ;;
+  *) echo "usage: feednode-network {ap|connect <ssid> [password]|clear}" >&2; exit 2;;
+esac
