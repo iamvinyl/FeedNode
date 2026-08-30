@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=feednode
 Group=feednode
-WorkingDirectory=/opt/feednode
+WorkingDirectory=/opt/feednode/current
 EnvironmentFile=-/etc/feednode/feednode.env
 Environment=FEEDNODE_STATE=/var/lib/feednode
 ExecStart=/opt/feednode/venv/bin/uvicorn app:app --host 0.0.0.0 --port 8787
