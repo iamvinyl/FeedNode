@@ -1,0 +1,24 @@
+#!/bin/bash
+set -euo pipefail
+STATE=/var/lib/feednode
+APP=/opt/feednode
+LEVEL=${1:-}
+case "$LEVEL" in
+ wifi)
+   /usr/local/bin/feednode-network clear
+   ;;
+ accounts)
+   rm -rf "$STATE/credentials"/*
+   ;;
+ cache)
+   rm -rf "$STATE/cache"/*
+   ;;
+ factory)
+   rm -rf "$STATE/config" "$STATE/credentials" "$STATE/cache"
+   mkdir -p "$STATE/config" "$STATE/credentials" "$STATE/cache"
+   cp "$APP/config.default.json" "$STATE/config/config.json"
+   chown -R feednode:feednode "$STATE"
+   /usr/local/bin/feednode-network clear
+   ;;
+ *) echo "usage: feednode-reset {wifi|accounts|cache|factory}" >&2; exit 2;;
+esac
