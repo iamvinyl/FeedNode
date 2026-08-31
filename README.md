@@ -1,48 +1,44 @@
-# FeedNode
-## Unified Chat Feed
+# FeedNode v0.2.0 — Native Display Build
 
-FeedNode is a Raspberry Pi Zero 2 W kiosk appliance for a configurable combined or split live chat/activity display.
+FeedNode is a Raspberry Pi unified chat/activity appliance. Version 0.2.0 replaces the HDMI web browser with a native pygame/SDL2 renderer using Raspberry Pi OS Bookworm's KMSDRM video path.
 
-### v0.1.0 foundation
-- Portrait combined feed
-- Portrait split Activity/Chat or Chat/Activity
-- Landscape combined feed
-- Landscape split Activity/Chat or Chat/Activity
-- Adjustable split ratio
-- Style page with Google Font family/CSS URL, colors, sizes, avatars, platform labels and timestamps
-- Wi-Fi setup AP (`FeedNode-Setup`) using NetworkManager
-- Wi-Fi fallback/recovery
-- Twitch Device Code OAuth endpoints using a distributor-provided public Client ID
-- Account/cache/Wi-Fi/factory reset plumbing
-- Chromium kiosk boot
-- WebSocket live feed frontend
-- Demo event API for connector testing
-- GitHub release/update scaffolding
+## Recommended base OS
 
-### Recommended image
-Use current 64-bit Raspberry Pi OS Lite on a 32 GB high-endurance microSD.
+- Raspberry Pi OS Lite (64-bit), Bookworm
+- Raspberry Pi Zero 2 W or faster
+- 16 GB minimum microSD; 32 GB+ recommended for comfortable cache/update headroom
 
-### Install
-Copy the `feednode` folder to the Pi, then:
+## What runs
+
+- FastAPI/Uvicorn backend on port 8787
+- Web settings UI at `http://feednode.local:8787/settings`
+- Twitch OAuth + EventSub ingestion
+- Native HDMI renderer via pygame + SDL2 + KMSDRM
+- No Chromium, Cog, Cage, X11, Openbox, or desktop environment
+
+## Fresh install
 
 ```bash
-cd feednode
+cd ~/feednode_v0.2.0
+chmod +x install.sh
 sudo ./install.sh
 sudo reboot
 ```
 
-On first boot, connect a phone to **FeedNode-Setup**, then open:
+If FeedNode has no saved Wi-Fi connection, it exposes `FeedNode-Setup`. The setup page is `http://10.42.0.1:8787/setup` while connected to that AP.
 
-`http://10.42.0.1:8787/setup`
+## Twitch
 
-After it joins Wi-Fi, settings are available at:
+Connect Twitch from Settings. Channel Points require the `channel:read:redemptions` permission, so reconnect Twitch after upgrading from an older authorization if Settings reports reauthorization is required.
 
-`http://feednode.local:8787/settings`
+## Native display
 
-### Updates
-FeedNode is designed to update from GitHub Releases. Stable releases contain a versioned tarball, SHA-256 checksum, and `manifest.json`; devices verify the checksum before installing and can roll back if the health check fails.
+The HDMI process is `feednode-kiosk.service` for compatibility with earlier builds, but it now launches `/opt/feednode/current/display.py` directly. It renders the same layout/style configuration without a browser.
 
-For tokenless end-user updates, the repository/releases must be publicly readable.
+Useful diagnostics:
 
-### Current connector status
-The display/settings/network/reset foundation is implemented. Twitch Device OAuth is wired. Full Twitch EventSub ingestion, Twitch avatar/badge/emote resolution, Rumble ingestion, and YouTube ingestion are the next connector layer and are intentionally not faked in this v0.1.0 package.
+```bash
+sudo systemctl status feednode.service --no-pager
+sudo systemctl status feednode-kiosk.service --no-pager
+sudo journalctl -u feednode-kiosk.service -n 100 --no-pager
+```

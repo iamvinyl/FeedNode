@@ -1,26 +1,47 @@
 #!/bin/bash
 set -euo pipefail
-if [ "$EUID" -ne 0 ]; then echo "Run with sudo: sudo ./install.sh"; exit 1; fi
+if [ "$EUID" -ne 0 ]; then
+  echo "Run with sudo: sudo ./install.sh"
+  exit 1
+fi
 
 VERSION="$(tr -d '[:space:]' < VERSION)"
 APP_ROOT=/opt/feednode
 RELEASE="$APP_ROOT/releases/$VERSION"
 STATE=/var/lib/feednode
 
+printf '\nFeedNode %s replacement install\n' "$VERSION"
+
+# Stop the current display/app before replacing release files.
+systemctl stop feednode-kiosk.service >/dev/null 2>&1 || true
+systemctl stop feednode.service >/dev/null 2>&1 || true
+apt purge -y cage cog chromium chromium-browser openbox xserver-xorg xinit unclutter >/dev/null 2>&1 || true
+
 apt update
-apt install -y python3-venv python3-pip network-manager chromium xserver-xorg xinit openbox x11-xserver-utils avahi-daemon curl unclutter
+apt install -y \
+  python3-venv python3-pip \
+  network-manager avahi-daemon curl \
+  python3-pygame libegl-dev fonts-dejavu-core libpam-systemd
+
 systemctl enable --now NetworkManager
-id feednode >/dev/null 2>&1 || useradd -m -s /bin/bash -G video,input,render feednode
+
+if id feednode >/dev/null 2>&1; then
+  usermod -aG video,render,input feednode
+else
+  useradd -m -s /bin/bash -G video,render,input feednode
+fi
+
 mkdir -p "$APP_ROOT/releases" "$STATE"/{config,credentials,cache} /etc/feednode
 rm -rf "$RELEASE"
 mkdir -p "$RELEASE"
-cp app.py requirements.txt config.default.json VERSION "$RELEASE"/
+cp app.py display.py requirements.txt config.default.json VERSION "$RELEASE"/
 cp -r config static templates scripts updater "$RELEASE"/
 ln -sfn "$RELEASE" "$APP_ROOT/current"
 
-if [ ! -d "$APP_ROOT/venv" ]; then
-  python3 -m venv "$APP_ROOT/venv"
+if [ -d "$APP_ROOT/venv" ]; then
+  rm -rf "$APP_ROOT/venv"
 fi
+python3 -m venv --system-site-packages "$APP_ROOT/venv"
 "$APP_ROOT/venv/bin/pip" install --upgrade pip
 "$APP_ROOT/venv/bin/pip" install -r "$RELEASE/requirements.txt"
 
@@ -61,4 +82,8 @@ systemctl enable --now feednode-updater.timer
 hostnamectl set-hostname feednode
 systemctl enable --now avahi-daemon
 
-printf '\nFeedNode %s installed.\nSettings: http://feednode.local:8787/settings\nIf no saved Wi-Fi connection is available after reboot, FeedNode will expose FeedNode-Setup automatically.\n\nTwitch is preconfigured for normal builds; connect your Twitch account from FeedNode Settings.\n' "$VERSION"
+printf '\nFeedNode %s installed.\n' "$VERSION"
+printf 'Settings: http://feednode.local:8787/settings\n'
+printf 'HDMI: native pygame/SDL2 KMSDRM renderer (no browser)\n'
+printf 'Existing Wi-Fi, layout settings, and Twitch credentials were preserved.\n'
+printf 'If Twitch was already authorized, EventSub will start automatically.\n\n'

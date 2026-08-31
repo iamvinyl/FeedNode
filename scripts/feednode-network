@@ -22,6 +22,7 @@ case "$ACTION" in
     fi
     ;;
   clear)
+    # Remove saved Wi-Fi client connections but preserve our setup AP profile.
     while IFS=: read -r name type; do
       if [ "$type" = "802-11-wireless" ] && [ "$name" != "$AP_CON" ]; then nmcli con delete "$name" || true; fi
     done < <(nmcli -t -f NAME,TYPE con show)

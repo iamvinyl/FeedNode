@@ -1,24 +1,30 @@
 [Unit]
-Description=FeedNode HDMI Kiosk
-After=feednode.service network-online.target
+Description=FeedNode Native HDMI Display (SDL2/KMSDRM)
+After=feednode.service systemd-user-sessions.service
 Requires=feednode.service
-Wants=network-online.target
 Conflicts=getty@tty1.service
 
 [Service]
 Type=simple
 User=feednode
 Group=feednode
+SupplementaryGroups=video render input
 Environment=HOME=/home/feednode
-Environment=DISPLAY=:0
-Environment=XAUTHORITY=/home/feednode/.Xauthority
+Environment=FEEDNODE_STATE=/var/lib/feednode
+Environment=SDL_VIDEODRIVER=kmsdrm
+Environment=SDL_AUDIODRIVER=dummy
+Environment=PYGAME_HIDE_SUPPORT_PROMPT=1
 TTYPath=/dev/tty1
-StandardInput=tty
+StandardInput=tty-force
 StandardOutput=journal
 StandardError=journal
-ExecStart=/usr/bin/startx /usr/local/bin/feednode-kiosk -- :0 vt1 -nolisten tcp
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+PAMName=login
+ExecStart=/opt/feednode/venv/bin/python /opt/feednode/current/display.py
 Restart=always
-RestartSec=5
+RestartSec=2
 
 [Install]
 WantedBy=multi-user.target
