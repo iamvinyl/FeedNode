@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - '.sync/FeedNode_v0.2.0_NATIVE_FRESH_INSTALL.zip'
+      - '.sync/part*'
       - '.github/workflows/sync-v020.yml'
 
 permissions:
@@ -17,11 +17,13 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Unpack v0.2.0 source
+      - name: Reassemble and unpack v0.2.0 source
         run: |
           rm -rf /tmp/feednode-v020
           mkdir -p /tmp/feednode-v020
-          unzip -q .sync/FeedNode_v0.2.0_NATIVE_FRESH_INSTALL.zip -d /tmp/feednode-v020
+          cat .sync/part* | tr -d '\n\r' | base64 -d > /tmp/feednode-v020.tar.xz
+          xz -t /tmp/feednode-v020.tar.xz
+          tar -xJf /tmp/feednode-v020.tar.xz -C /tmp/feednode-v020
           cp -a /tmp/feednode-v020/feednode_v0.2.0/. ./
 
       - name: Update changelog
