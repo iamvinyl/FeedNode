@@ -118,6 +118,7 @@ def status():
     return {"device":"FeedNode","network":wifi.stdout.strip(),"twitch":twitch_status()}
 
 TWITCH_TOKEN = CREDS_DIR / "twitch.json"
+TWITCH_SCOPES = "user:read:chat user:write:chat user:bot channel:read:subscriptions bits:read moderator:read:followers"
 
 def twitch_client_id():
     override = os.getenv("TWITCH_CLIENT_ID", "").strip()
@@ -136,10 +137,12 @@ def twitch_status():
 async def twitch_device_start():
     cid=twitch_client_id()
     if not cid: raise HTTPException(500,"Twitch Client ID is not configured in this FeedNode build")
-    scopes="user:read:chat user:write:chat user:bot channel:read:subscriptions bits:read moderator:read:followers"
     async with httpx.AsyncClient(timeout=15) as c:
-        r=await c.post("https://id.twitch.tv/oauth2/device", data={"client_id":cid,"scopes":scopes})
-        r.raise_for_status(); d=r.json()
+        r=await c.post("https://id.twitch.tv/oauth2/device", data={"client_id":cid,"scopes":TWITCH_SCOPES})
+        if r.status_code >= 400:
+            raise HTTPException(r.status_code, f"Twitch device authorization failed: {r.text}")
+        d=r.json()
+    d["scopes"] = TWITCH_SCOPES
     (CREDS_DIR/"twitch_device_pending.json").write_text(json.dumps(d))
     return d
 
@@ -148,10 +151,18 @@ async def twitch_device_poll():
     cid=twitch_client_id(); p=CREDS_DIR/"twitch_device_pending.json"
     if not p.exists(): raise HTTPException(400,"No pending Twitch authorization")
     d=json.loads(p.read_text())
+    scopes=d.get("scopes", TWITCH_SCOPES)
     async with httpx.AsyncClient(timeout=15) as c:
-        r=await c.post("https://id.twitch.tv/oauth2/token", data={"client_id":cid,"device_code":d["device_code"],"grant_type":"urn:ietf:params:oauth:grant-type:device_code"})
+        r=await c.post("https://id.twitch.tv/oauth2/token", data={"client_id":cid,"scopes":scopes,"device_code":d["device_code"],"grant_type":"urn:ietf:params:oauth:grant-type:device_code"})
         if r.status_code >= 400:
-            return JSONResponse({"ok":False,"pending":True,"detail":r.text},status_code=202)
+            try:
+                err=r.json()
+            except Exception:
+                err={"message":r.text}
+            message=str(err.get("message", r.text))
+            if message == "authorization_pending":
+                return JSONResponse({"ok":False,"pending":True,"detail":message},status_code=202)
+            return JSONResponse({"ok":False,"pending":False,"detail":message},status_code=r.status_code)
         tok=r.json()
         headers={"Authorization":f"OAuth {tok['access_token']}"}
         v=await c.get("https://id.twitch.tv/oauth2/validate",headers=headers); info=v.json() if v.status_code==200 else {}
