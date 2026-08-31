@@ -8,7 +8,7 @@ RELEASE="$APP_ROOT/releases/$VERSION"
 STATE=/var/lib/feednode
 
 apt update
-apt install -y python3-venv python3-pip network-manager chromium xserver-xorg xinit openbox x11-xserver-utils avahi-daemon curl
+apt install -y python3-venv python3-pip network-manager chromium xserver-xorg xinit openbox x11-xserver-utils avahi-daemon curl unclutter
 systemctl enable --now NetworkManager
 id feednode >/dev/null 2>&1 || useradd -m -s /bin/bash -G video,input,render feednode
 mkdir -p "$APP_ROOT/releases" "$STATE"/{config,credentials,cache} /etc/feednode
@@ -60,6 +60,5 @@ systemctl enable --now feednode-kiosk.service
 systemctl enable --now feednode-updater.timer
 hostnamectl set-hostname feednode
 systemctl enable --now avahi-daemon
-/usr/local/bin/feednode-network ap || true
 
-printf '\nFeedNode %s installed.\nSetup AP: FeedNode-Setup\nSetup URL: http://10.42.0.1:8787/setup\nSettings after Wi-Fi setup: http://feednode.local:8787/settings\n\nTwitch is preconfigured for normal builds; connect your Twitch account from FeedNode Settings.\n' "$VERSION"
+printf '\nFeedNode %s installed.\nSettings: http://feednode.local:8787/settings\nIf no saved Wi-Fi connection is available after reboot, FeedNode will expose FeedNode-Setup automatically.\n\nTwitch is preconfigured for normal builds; connect your Twitch account from FeedNode Settings.\n' "$VERSION"
