@@ -1,0 +1,53 @@
+name: Sync FeedNode v0.2.0
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.sync/FeedNode_v0.2.0_NATIVE_FRESH_INSTALL.zip'
+      - '.github/workflows/sync-v020.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Unpack v0.2.0 source
+        run: |
+          rm -rf /tmp/feednode-v020
+          mkdir -p /tmp/feednode-v020
+          unzip -q .sync/FeedNode_v0.2.0_NATIVE_FRESH_INSTALL.zip -d /tmp/feednode-v020
+          cp -a /tmp/feednode-v020/feednode_v0.2.0/. ./
+
+      - name: Update changelog
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('CHANGELOG.md')
+          old = p.read_text() if p.exists() else '# Changelog\n'
+          if '## 0.2.0' not in old:
+              entry = '''\n## 0.2.0\n- Replaced the HDMI browser/compositor stack with a native pygame/SDL2 KMSDRM renderer.\n- Added Twitch EventSub chat ingestion, native emote fragments, avatars, follows, subscriptions, gifts, resubs, Bits, raids, Channel Points, automatic rewards, and Power-ups.\n- Kept the FastAPI web settings and remote feed preview while reducing local display overhead.\n- Updated the installer and systemd services for Raspberry Pi OS Lite Bookworm and native HDMI startup.\n'''
+              if old.startswith('# Changelog'):
+                  head, rest = old.split('\n', 1)
+                  p.write_text(head + '\n' + entry + '\n' + rest.lstrip('\n'))
+              else:
+                  p.write_text('# Changelog\n' + entry + '\n' + old)
+
+      - name: Remove one-shot sync files
+        run: |
+          rm -rf .sync
+          rm -f .github/workflows/sync-v020.yml
+
+      - name: Commit v0.2.0
+        run: |
+          git config user.name 'iamVinyl'
+          git config user.email '53709201+iamvinyl@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m 'Release FeedNode v0.2.0 native display'
+          git push origin HEAD:main
