@@ -43,7 +43,6 @@ class SurfaceCache:
 
 surfaces = SurfaceCache()
 client = httpx.Client(timeout=3.0)
-
 feed_queue = Queue()
 
 def websocket_worker():
@@ -59,13 +58,11 @@ def websocket_worker():
         except Exception:
             time.sleep(1.0)
 
-
 def color(value, fallback):
     try:
         return pygame.Color(value)
     except Exception:
         return pygame.Color(fallback)
-
 
 def wait_for_backend():
     while True:
@@ -77,7 +74,6 @@ def wait_for_backend():
             pass
         time.sleep(0.25)
 
-
 def get_json(path, fallback):
     try:
         r = client.get(BASE_URL + path)
@@ -86,14 +82,12 @@ def get_json(path, fallback):
     except Exception:
         return fallback
 
-
 def image_url_for_emote(fragment):
     emote = (fragment or {}).get("emote") or {}
     eid = str(emote.get("id") or "")
     if not eid:
         return None
     return f"https://static-cdn.jtvnw.net/emoticons/v2/{eid}/default/dark/2.0"
-
 
 def fetch_surface(url, size):
     if not url:
@@ -117,10 +111,8 @@ def fetch_surface(url, size):
     except Exception:
         return None
 
-
 def load_fonts(cfg):
     style = cfg.get("style", {})
-    # Native display intentionally uses a local system font; remote Google fonts remain web-UI only.
     family = style.get("font_family", "DejaVu Sans")
     path = pygame.font.match_font(family) or pygame.font.match_font("dejavusans")
     return {
@@ -129,7 +121,6 @@ def load_fonts(cfg):
         "event": pygame.font.Font(path, max(12, int(style.get("event_size", 20)))),
         "meta": pygame.font.Font(path, max(10, int(style.get("username_size", 21) * 0.70))),
     }
-
 
 def wrap_text(font, text, max_width):
     words = str(text or "").split()
@@ -145,7 +136,6 @@ def wrap_text(font, text, max_width):
             current = word
     lines.append(current)
     return lines
-
 
 def draw_message_body(screen, x, y, width, item, cfg, fonts):
     style = cfg.get("style", {})
@@ -170,7 +160,6 @@ def draw_message_body(screen, x, y, width, item, cfg, fonts):
                 screen.blit(surf, (cursor_x, cursor_y + max(0, (line_h - eh)//2)))
                 cursor_x += ew + 4
                 continue
-        # Draw text fragment word-by-word so wrapping can coexist with inline emotes.
         chunks = ftext.split(" ")
         for idx, chunk in enumerate(chunks):
             token = chunk + (" " if idx < len(chunks)-1 else "")
@@ -185,7 +174,6 @@ def draw_message_body(screen, x, y, width, item, cfg, fonts):
             cursor_x += tw
     return cursor_y + line_h
 
-
 def measure_item(item, cfg, fonts, width):
     style = cfg.get("style", {})
     spacing = int(style.get("spacing", 12))
@@ -195,11 +183,9 @@ def measure_item(item, cfg, fonts, width):
         return fonts["event"].get_linesize() * (len(lines) + 1) + spacing * 2
     avatar = int(style.get("avatar_size", 42)) if style.get("show_avatars", True) else 0
     body_w = max(60, width - avatar - (spacing if avatar else 0) - spacing * 2)
-    # Approximation used for scrolling/layout; actual inline emotes may add one extra row.
     lines = wrap_text(fonts["message"], item.get("text", ""), body_w)
     content_h = fonts["user"].get_linesize() + 4 + max(1, len(lines)) * fonts["message"].get_linesize()
     return max(avatar, content_h) + spacing * 2
-
 
 def draw_item(screen, rect, item, cfg, fonts):
     style = cfg.get("style", {})
@@ -246,7 +232,6 @@ def draw_item(screen, rect, item, cfg, fonts):
     y += fonts["user"].get_linesize() + 3
     draw_message_body(screen, x, y, rect.right - spacing - x, item, cfg, fonts)
 
-
 def draw_column(screen, rect, items, cfg, fonts):
     style = cfg.get("style", {})
     spacing = int(style.get("spacing", 12))
@@ -256,7 +241,6 @@ def draw_column(screen, rect, items, cfg, fonts):
     total = sum(h + spacing for h in heights)
     y = rect.bottom - spacing - total
     if y < rect.top + spacing:
-        # Discard oldest visible cards until the remaining set fits.
         while items and y < rect.top + spacing:
             total -= heights[0] + spacing
             items = items[1:]
@@ -271,19 +255,18 @@ def draw_column(screen, rect, items, cfg, fonts):
         y += h + spacing
     screen.set_clip(old_clip)
 
-
-def render(screen, cfg, feed, fonts):
+def render_layout(surface, cfg, feed, fonts):
     style = cfg.get("style", {})
     layout = cfg.get("layout", {})
-    screen.fill(color(style.get("background"), "#080A0D"))
-    w, h = screen.get_size()
+    surface.fill(color(style.get("background"), "#080A0D"))
+    w, h = surface.get_size()
     mode = layout.get("mode", "combined")
     orientation = layout.get("orientation", "portrait")
     order = layout.get("order", "activity-first")
     ratio = max(10, min(90, int(layout.get("split_ratio", 35)))) / 100.0
 
     if mode == "combined":
-        draw_column(screen, pygame.Rect(0, 0, w, h), list(feed), cfg, fonts)
+        draw_column(surface, pygame.Rect(0, 0, w, h), list(feed), cfg, fonts)
     else:
         activities = [i for i in feed if i.get("kind") != "message"]
         messages = [i for i in feed if i.get("kind") == "message"]
@@ -296,11 +279,29 @@ def render(screen, cfg, feed, fonts):
             cut = int(h * ratio)
             first = pygame.Rect(0, 0, w, cut)
             second = pygame.Rect(0, cut, w, h-cut)
-        draw_column(screen, first, activities if first_activity else messages, cfg, fonts)
-        draw_column(screen, second, messages if first_activity else activities, cfg, fonts)
+        draw_column(surface, first, activities if first_activity else messages, cfg, fonts)
+        draw_column(surface, second, messages if first_activity else activities, cfg, fonts)
+
+def render(screen, cfg, feed, fonts):
+    orientation = cfg.get("layout", {}).get("orientation", "portrait")
+    sw, sh = screen.get_size()
+    native_landscape = sw >= sh
+    want_landscape = orientation == "landscape"
+
+    # Render into a logical surface whose aspect matches the selected orientation.
+    # If the monitor's native mode is the opposite orientation, rotate the finished
+    # frame onto the physical KMS framebuffer. This makes the web orientation setting
+    # affect the connected monitor without restarting SDL or changing boot config.
+    needs_rotation = native_landscape != want_landscape
+    if needs_rotation:
+        logical = pygame.Surface((sh, sw)).convert()
+        render_layout(logical, cfg, feed, fonts)
+        rotated = pygame.transform.rotate(logical, -90 if orientation == "portrait" else 90)
+        screen.blit(rotated, (0, 0))
+    else:
+        render_layout(screen, cfg, feed, fonts)
 
     pygame.display.flip()
-
 
 def main():
     wait_for_backend()
