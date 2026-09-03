@@ -115,11 +115,22 @@ def load_fonts(cfg):
     style = cfg.get("style", {})
     family = style.get("font_family", "DejaVu Sans")
     path = pygame.font.match_font(family) or pygame.font.match_font("dejavusans")
+
+    message = pygame.font.Font(path, max(12, int(style.get("message_size", 24))))
+    user = pygame.font.Font(path, max(12, int(style.get("username_size", 21))))
+    event = pygame.font.Font(path, max(12, int(style.get("event_size", 20))))
+    meta = pygame.font.Font(path, max(10, int(style.get("username_size", 21) * 0.70)))
+    event_title = pygame.font.Font(path, max(10, int(style.get("username_size", 21) * 0.70)))
+
+    user.set_bold(True)
+    event_title.set_bold(True)
+
     return {
-        "message": pygame.font.Font(path, max(12, int(style.get("message_size", 24)))),
-        "user": pygame.font.Font(path, max(12, int(style.get("username_size", 21)))),
-        "event": pygame.font.Font(path, max(12, int(style.get("event_size", 20)))),
-        "meta": pygame.font.Font(path, max(10, int(style.get("username_size", 21) * 0.70))),
+        "message": message,
+        "user": user,
+        "event": event,
+        "meta": meta,
+        "event_title": event_title,
     }
 
 def wrap_text(font, text, max_width):
@@ -202,7 +213,7 @@ def draw_item(screen, rect, item, cfg, fonts):
     y = rect.y + spacing
     if item.get("kind") != "message":
         event_name = str(item.get("event") or item.get("kind") or "activity").replace("_", " ").upper()
-        ev = fonts["meta"].render(event_name, True, activity)
+        ev = fonts["event_title"].render(event_name, True, activity)
         screen.blit(ev, (x, y))
         y += ev.get_height() + 3
         body = f"{item.get('user','')} {item.get('text','')}".strip()
@@ -288,10 +299,6 @@ def render(screen, cfg, feed, fonts):
     native_landscape = sw >= sh
     want_landscape = orientation == "landscape"
 
-    # Render into a logical surface whose aspect matches the selected orientation.
-    # If the monitor's native mode is the opposite orientation, rotate the finished
-    # frame onto the physical KMS framebuffer. This makes the web orientation setting
-    # affect the connected monitor without restarting SDL or changing boot config.
     needs_rotation = native_landscape != want_landscape
     if needs_rotation:
         logical = pygame.Surface((sh, sw)).convert()
