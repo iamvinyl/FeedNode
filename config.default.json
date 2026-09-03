@@ -14,6 +14,11 @@
     "background": "#080A0D",
     "panel": "#10141A",
     "event_panel": "#14101A",
+    "system_event_panel": "#17131F",
+    "twitch_event_panel": "#181225",
+    "rumble_event_panel": "#102019",
+    "youtube_event_panel": "#241313",
+    "kick_event_panel": "#102116",
     "text": "#F4F7FA",
     "muted": "#8C98A6",
     "accent": "#39E6D0",
@@ -47,6 +52,9 @@
       "enabled": false
     },
     "rumble": {
+      "enabled": false
+    },
+    "kick": {
       "enabled": false
     }
   }
