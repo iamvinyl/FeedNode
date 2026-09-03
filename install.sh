@@ -62,7 +62,7 @@ install -m 644 services/feednode-updater.service /etc/systemd/system/feednode-up
 install -m 644 services/feednode-updater.timer /etc/systemd/system/feednode-updater.timer
 
 cat >/etc/sudoers.d/feednode <<'SUDO'
-feednode ALL=(root) NOPASSWD: /usr/local/bin/feednode-network, /usr/local/bin/feednode-reset, /opt/feednode/current/scripts/update.sh *, /usr/bin/systemctl restart feednode-kiosk.service, /usr/bin/systemctl reboot
+feednode ALL=(root) NOPASSWD: /usr/local/bin/feednode-network, /usr/local/bin/feednode-reset, /opt/feednode/current/scripts/update.sh *, /usr/bin/systemctl restart feednode-kiosk.service, /usr/bin/systemctl reboot, /usr/bin/systemd-run --unit=feednode-firmware-update --collect /opt/feednode/venv/bin/python /opt/feednode/current/updater/updater.py install
 SUDO
 chmod 440 /etc/sudoers.d/feednode
 
