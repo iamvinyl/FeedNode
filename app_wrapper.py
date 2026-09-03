@@ -1,6 +1,7 @@
 import asyncio
 import json
 import subprocess
+import time
 from pathlib import Path
 
 from fastapi.responses import JSONResponse
@@ -10,6 +11,9 @@ import app as base
 app = base.app
 UPDATER = Path(__file__).resolve().parent / "updater" / "updater.py"
 PYTHON = Path("/opt/feednode/venv/bin/python")
+UPDATE_CACHE_SECONDS = 300.0
+_update_cache = {"data": None, "checked": 0.0}
+_update_lock = asyncio.Lock()
 
 
 async def _run_system_action(*args):
@@ -37,6 +41,23 @@ def _run_updater(action: str):
     if result.returncode and data.get("ok") is not False:
         data = {"ok": False, "error": data.get("error") or raw or "Update check failed"}
     return data
+
+
+async def _update_status(force=False):
+    now = time.monotonic()
+    cached = _update_cache.get("data")
+    if not force and cached is not None and now - float(_update_cache.get("checked", 0.0)) < UPDATE_CACHE_SECONDS:
+        return cached
+
+    async with _update_lock:
+        now = time.monotonic()
+        cached = _update_cache.get("data")
+        if not force and cached is not None and now - float(_update_cache.get("checked", 0.0)) < UPDATE_CACHE_SECONDS:
+            return cached
+        data = await asyncio.to_thread(_run_updater, "check")
+        _update_cache["data"] = data
+        _update_cache["checked"] = time.monotonic()
+        return data
 
 
 def _start_detached_update():
@@ -67,14 +88,14 @@ async def reboot_feednode():
 
 
 @app.get("/api/update/check")
-async def update_check():
-    data = await asyncio.to_thread(_run_updater, "check")
+async def update_check(force: bool = False):
+    data = await _update_status(force=force)
     return JSONResponse(data, status_code=200 if data.get("ok") else 503)
 
 
 @app.post("/api/update/install")
 async def update_install():
-    check = await asyncio.to_thread(_run_updater, "check")
+    check = await _update_status(force=True)
     if not check.get("ok"):
         return JSONResponse(check, status_code=503)
     if not check.get("update_available"):
