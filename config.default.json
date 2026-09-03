@@ -21,6 +21,7 @@
     "username_size": 21,
     "event_size": 20,
     "avatar_size": 42,
+    "stats_bar_size": 18,
     "radius": 10,
     "spacing": 12,
     "show_platform": true,
@@ -28,6 +29,7 @@
     "show_badges": true,
     "use_platform_colors": true,
     "show_timestamps": false,
+    "show_stats_bar": false,
     "animated_emotes": true,
     "max_animated_emotes": 12
   },
