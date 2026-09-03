@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+import json
+import os
+import threading
+import time
+from pathlib import Path
+
+import httpx
+import pygame
+
+import display as base
+
+STATE = Path(os.getenv("FEEDNODE_STATE", "/var/lib/feednode"))
+TWITCH_TOKEN = STATE / "credentials" / "twitch.json"
+DISTRIBUTOR_FILE = Path(__file__).resolve().parent / "config" / "distributor.json"
+STATS_REFRESH_SECONDS = 30.0
+DEFAULT_STATS_FONT_SIZE = 18
+
+_original_load_fonts = base.load_fonts
+_original_render_layout = base.render_layout
+
+_stats_lock = threading.Lock()
+_stats = {
+    "viewers": "--",
+    "followers": "--",
+    "subscribers": "--",
+    "updated": 0.0,
+    "refreshing": False,
+}
+
+
+def _read_json(path):
+    try:
+        return json.loads(path.read_text()) if path.exists() else {}
+    except Exception:
+        return {}
+
+
+def _twitch_auth():
+    token = _read_json(TWITCH_TOKEN)
+    distributor = _read_json(DISTRIBUTOR_FILE)
+    access_token = str(token.get("access_token") or "").strip()
+    user_id = str(token.get("user_id") or "").strip()
+    client_id = str(os.getenv("TWITCH_CLIENT_ID") or distributor.get("twitch_client_id") or "").strip()
+    if not access_token or not user_id or not client_id:
+        return None
+    return access_token, user_id, client_id
+
+
+def _refresh_stats_worker():
+    values = {"viewers": "--", "followers": "--", "subscribers": "--"}
+    try:
+        auth = _twitch_auth()
+        if auth:
+            access_token, user_id, client_id = auth
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Client-Id": client_id,
+            }
+            with httpx.Client(timeout=8.0, headers=headers) as client:
+                streams = client.get(
+                    "https://api.twitch.tv/helix/streams",
+                    params={"user_id": user_id},
+                )
+                if streams.status_code == 200:
+                    data = streams.json().get("data") or []
+                    values["viewers"] = int(data[0].get("viewer_count", 0)) if data else 0
+
+                followers = client.get(
+                    "https://api.twitch.tv/helix/channels/followers",
+                    params={"broadcaster_id": user_id, "first": 1},
+                )
+                if followers.status_code == 200:
+                    values["followers"] = int(followers.json().get("total", 0))
+
+                subscribers = client.get(
+                    "https://api.twitch.tv/helix/subscriptions",
+                    params={"broadcaster_id": user_id, "first": 1},
+                )
+                if subscribers.status_code == 200:
+                    values["subscribers"] = int(subscribers.json().get("total", 0))
+    except Exception:
+        pass
+    finally:
+        with _stats_lock:
+            _stats.update(values)
+            _stats["updated"] = time.monotonic()
+            _stats["refreshing"] = False
+
+
+def get_stats():
+    now = time.monotonic()
+    with _stats_lock:
+        stale = now - float(_stats.get("updated", 0.0)) >= STATS_REFRESH_SECONDS
+        if stale and not _stats.get("refreshing"):
+            _stats["refreshing"] = True
+            threading.Thread(target=_refresh_stats_worker, daemon=True).start()
+        return {
+            "viewers": _stats["viewers"],
+            "followers": _stats["followers"],
+            "subscribers": _stats["subscribers"],
+        }
+
+
+def load_fonts(cfg):
+    fonts = _original_load_fonts(cfg)
+    style = cfg.get("style", {})
+    family = style.get("font_family", "DejaVu Sans")
+    path = pygame.font.match_font(family) or pygame.font.match_font("dejavusans")
+    stats_size = max(10, min(48, int(style.get("stats_bar_size", DEFAULT_STATS_FONT_SIZE))))
+    stats_font = pygame.font.Font(path, stats_size)
+    stats_font.set_bold(True)
+    fonts["stats"] = stats_font
+    return fonts
+
+
+def _format_count(value):
+    try:
+        return f"{int(value):,}"
+    except Exception:
+        return str(value)
+
+
+def stats_bar_height(cfg, fonts):
+    if not cfg.get("style", {}).get("show_stats_bar", False):
+        return 0
+    return fonts["stats"].get_linesize() + 18
+
+
+def draw_stats_bar(surface, cfg, fonts, height):
+    style = cfg.get("style", {})
+    panel = base.color(style.get("panel"), "#10141A")
+    muted = base.color(style.get("muted"), "#8C98A6")
+    text = base.color(style.get("text"), "#F4F7FA")
+    accent = base.color(style.get("accent"), "#39E6D0")
+    stats = get_stats()
+
+    pygame.draw.rect(surface, panel, pygame.Rect(0, 0, surface.get_width(), height))
+    pygame.draw.line(surface, accent, (0, height - 1), (surface.get_width(), height - 1), 1)
+
+    entries = (
+        ("VIEWERS", stats["viewers"]),
+        ("FOLLOWERS", stats["followers"]),
+        ("SUBS", stats["subscribers"]),
+    )
+    column_width = surface.get_width() / 3.0
+    y = max(0, (height - fonts["stats"].get_linesize()) // 2)
+
+    for idx, (label, value) in enumerate(entries):
+        label_surf = fonts["stats"].render(label + " ", True, muted)
+        value_surf = fonts["stats"].render(_format_count(value), True, text)
+        total_width = label_surf.get_width() + value_surf.get_width()
+        center_x = int((idx + 0.5) * column_width)
+        x = int(center_x - total_width / 2)
+        surface.blit(label_surf, (x, y))
+        surface.blit(value_surf, (x + label_surf.get_width(), y))
+
+
+def render_layout(surface, cfg, feed, fonts, anim_ctx):
+    bar_height = stats_bar_height(cfg, fonts)
+    if bar_height <= 0:
+        return _original_render_layout(surface, cfg, feed, fonts, anim_ctx)
+
+    w, h = surface.get_size()
+    bar_height = min(bar_height, max(0, h - 80))
+    if bar_height <= 0:
+        return _original_render_layout(surface, cfg, feed, fonts, anim_ctx)
+
+    content_rect = pygame.Rect(0, bar_height, w, h - bar_height)
+    content_surface = surface.subsurface(content_rect)
+    _original_render_layout(content_surface, cfg, feed, fonts, anim_ctx)
+    draw_stats_bar(surface, cfg, fonts, bar_height)
+
+
+base.load_fonts = load_fonts
+base.render_layout = render_layout
+
+if __name__ == "__main__":
+    base.main()
