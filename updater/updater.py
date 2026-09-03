@@ -48,12 +48,11 @@ def _asset_map(data: dict) -> dict[str, dict[str, str]]:
     assets = {}
     for asset in data.get("assets", []):
         name = asset.get("name")
-        if not name:
-            continue
-        assets[name] = {
-            "api_url": asset.get("url") or "",
-            "browser_url": asset.get("browser_download_url") or "",
-        }
+        if name:
+            assets[name] = {
+                "api_url": asset.get("url") or "",
+                "browser_url": asset.get("browser_download_url") or "",
+            }
     return assets
 
 
@@ -63,11 +62,7 @@ def _download_asset_bytes(asset: dict[str, str], timeout: float = 30.0) -> bytes
     token = (os.getenv("FEEDNODE_GITHUB_TOKEN") or os.getenv("GITHUB_TOKEN") or "").strip()
 
     if token and api_url:
-        with httpx.Client(
-            timeout=timeout,
-            follow_redirects=True,
-            headers=_headers("application/octet-stream"),
-        ) as client:
+        with httpx.Client(timeout=timeout, follow_redirects=True, headers=_headers("application/octet-stream")) as client:
             response = client.get(api_url)
             response.raise_for_status()
             return response.content
@@ -82,7 +77,6 @@ def _download_asset_bytes(asset: dict[str, str], timeout: float = 30.0) -> bytes
 
 
 def _enter_update_display() -> bool:
-    """Hand tty1 from the native renderer to the lightweight update splash."""
     if os.geteuid() != 0:
         return False
     try:
@@ -104,26 +98,19 @@ def _leave_update_display() -> None:
     subprocess.run(["/usr/bin/systemctl", "restart", "feednode-kiosk.service"], check=False)
 
 
-def _extract_release_update_script(archive: Path, temp_root: Path) -> Path:
-    """Extract the installer from the *new* release so updates are self-bootstrapping."""
-    destination = temp_root / "release-update.sh"
+def _safe_extract_release(archive: Path, destination: Path) -> Path:
+    destination = destination.resolve()
     with tarfile.open(archive, "r:gz") as tf:
-        member = next(
-            (
-                item
-                for item in tf.getmembers()
-                if item.isfile() and item.name.rstrip("/").endswith("/scripts/update.sh")
-            ),
-            None,
-        )
-        if member is None:
-            raise RuntimeError("Release is missing scripts/update.sh")
-        source = tf.extractfile(member)
-        if source is None:
-            raise RuntimeError("Unable to read release update script")
-        destination.write_bytes(source.read())
-    destination.chmod(0o700)
-    return destination
+        for member in tf.getmembers():
+            member_path = (destination / member.name).resolve()
+            if destination != member_path and destination not in member_path.parents:
+                raise RuntimeError("Release archive contains an unsafe path")
+        tf.extractall(destination)
+
+    candidates = [p.parent for p in destination.rglob("install.sh") if (p.parent / "VERSION").is_file()]
+    if len(candidates) != 1:
+        raise RuntimeError("Release archive does not contain one valid FeedNode install root")
+    return candidates[0]
 
 
 def check() -> dict:
@@ -185,12 +172,25 @@ def install(info: dict) -> None:
             if digest.lower() != manifest["sha256"].lower():
                 raise RuntimeError("Release checksum verification failed")
 
-            release_update_script = _extract_release_update_script(archive, temp_root)
-            subprocess.run(
-                [str(release_update_script), str(archive), manifest["version"]],
-                check=True,
-                env=os.environ.copy(),
-            )
+            release_root = _safe_extract_release(archive, temp_root / "release")
+            package_version = (release_root / "VERSION").read_text().strip()
+            if package_version != manifest["version"]:
+                raise RuntimeError(
+                    f"Release VERSION ({package_version}) does not match manifest version ({manifest['version']})"
+                )
+
+            installer = release_root / "install.sh"
+            installer.chmod(0o700)
+            env = os.environ.copy()
+            env["FEEDNODE_FIRMWARE_UPDATE"] = "1"
+            env["DEBIAN_FRONTEND"] = "noninteractive"
+            subprocess.run([str(installer)], cwd=release_root, check=True, env=env)
+
+            installed = current_version()
+            if installed != manifest["version"]:
+                raise RuntimeError(
+                    f"Installer completed but active build is v{installed}, expected v{manifest['version']}"
+                )
     finally:
         if display_taken:
             _leave_update_display()
