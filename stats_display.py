@@ -17,8 +17,6 @@ DISTRIBUTOR_FILE = Path(__file__).resolve().parent / "config" / "distributor.jso
 STATS_REFRESH_SECONDS = 30.0
 STATS_REDRAW_SECONDS = 2.0
 DEFAULT_STATS_FONT_SIZE = 18
-DEFAULT_STATS_TITLE_SIZE = 14
-DEFAULT_STATS_NUMBER_SIZE = 20
 
 _original_load_fonts = base.load_fonts
 _original_render_layout = base.render_layout
@@ -117,8 +115,8 @@ def load_fonts(cfg):
     family = style.get("font_family", "DejaVu Sans")
     path = pygame.font.match_font(family) or pygame.font.match_font("dejavusans")
     legacy = _legacy_stats_size(style)
-    title_size = max(8, min(48, int(style.get("stats_title_size", min(legacy, DEFAULT_STATS_TITLE_SIZE)))))
-    number_size = max(10, min(64, int(style.get("stats_number_size", max(legacy, DEFAULT_STATS_NUMBER_SIZE)))))
+    title_size = max(8, min(48, int(style.get("stats_title_size", legacy))))
+    number_size = max(10, min(64, int(style.get("stats_number_size", legacy))))
     title_font = pygame.font.Font(path, title_size)
     number_font = pygame.font.Font(path, number_size)
     title_font.set_bold(True)
@@ -181,7 +179,6 @@ def draw_item(screen, rect, item, cfg, fonts, anim_ctx):
     if item.get("kind") == "message":
         return _original_draw_item(screen, rect, item, cfg, fonts, anim_ctx)
 
-    # Events use their own card/panel color while inheriting all other feed style.
     event_cfg = dict(cfg)
     event_style = dict(cfg.get("style", {}))
     event_style["panel"] = event_style.get("event_panel", event_style.get("panel", "#10141A"))
