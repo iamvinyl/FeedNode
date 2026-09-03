@@ -34,7 +34,7 @@ fi
 mkdir -p "$APP_ROOT/releases" "$STATE"/{config,credentials,cache} /etc/feednode
 rm -rf "$RELEASE"
 mkdir -p "$RELEASE"
-cp app.py display.py requirements.txt config.default.json VERSION "$RELEASE"/
+cp app.py display.py stats_display.py requirements.txt config.default.json VERSION "$RELEASE"/
 cp -r config static templates scripts updater "$RELEASE"/
 ln -sfn "$RELEASE" "$APP_ROOT/current"
 
