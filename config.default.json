@@ -27,11 +27,19 @@
     "show_avatars": true,
     "show_badges": true,
     "use_platform_colors": true,
-    "show_timestamps": false
+    "show_timestamps": false,
+    "animated_emotes": true,
+    "max_animated_emotes": 12
   },
   "platforms": {
-    "twitch": {"enabled": true},
-    "youtube": {"enabled": false},
-    "rumble": {"enabled": false}
+    "twitch": {
+      "enabled": true
+    },
+    "youtube": {
+      "enabled": false
+    },
+    "rumble": {
+      "enabled": false
+    }
   }
 }
