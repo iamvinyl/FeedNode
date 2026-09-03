@@ -4,6 +4,7 @@ import os
 import threading
 import time
 from pathlib import Path
+from queue import Empty
 
 import httpx
 import pygame
@@ -14,6 +15,7 @@ STATE = Path(os.getenv("FEEDNODE_STATE", "/var/lib/feednode"))
 TWITCH_TOKEN = STATE / "credentials" / "twitch.json"
 DISTRIBUTOR_FILE = Path(__file__).resolve().parent / "config" / "distributor.json"
 STATS_REFRESH_SECONDS = 30.0
+STATS_REDRAW_SECONDS = 2.0
 DEFAULT_STATS_FONT_SIZE = 18
 
 _original_load_fonts = base.load_fonts
@@ -172,8 +174,62 @@ def render_layout(surface, cfg, feed, fonts, anim_ctx):
     draw_stats_bar(surface, cfg, fonts, bar_height)
 
 
+def main():
+    base.wait_for_backend()
+    pygame.display.init()
+    pygame.font.init()
+    pygame.mouse.set_visible(False)
+    screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN | pygame.DOUBLEBUF)
+    pygame.display.set_caption("FeedNode Native Display")
+
+    cfg = base.get_json("/api/config", {})
+    fonts = load_fonts(cfg)
+    feed = base.get_json("/api/feed", [])
+    thread = threading.Thread(target=base.websocket_worker, daemon=True)
+    thread.start()
+    last_cfg = time.monotonic()
+    last_stats_redraw = 0.0
+    dirty = True
+    animation_active = False
+
+    clock = pygame.time.Clock()
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return
+
+        now = time.monotonic()
+        if now - last_cfg >= base.CONFIG_INTERVAL:
+            new_cfg = base.get_json("/api/config", cfg)
+            if new_cfg != cfg:
+                cfg = new_cfg
+                fonts = load_fonts(cfg)
+                dirty = True
+            last_cfg = now
+
+        if cfg.get("style", {}).get("show_stats_bar", False) and now - last_stats_redraw >= STATS_REDRAW_SECONDS:
+            dirty = True
+            last_stats_redraw = now
+
+        while True:
+            try:
+                item = base.feed_queue.get_nowait()
+            except Empty:
+                break
+            feed.append(item)
+            if len(feed) > 100:
+                del feed[:-100]
+            dirty = True
+
+        if dirty or animation_active:
+            animation_active = base.render(screen, cfg, feed, fonts)
+            dirty = False
+
+        clock.tick(max(1, int(1.0 / base.FRAME_INTERVAL)))
+
+
 base.load_fonts = load_fonts
 base.render_layout = render_layout
 
 if __name__ == "__main__":
-    base.main()
+    main()
