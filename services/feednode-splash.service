@@ -1,0 +1,18 @@
+[Unit]
+Description=FeedNode HDMI Loading Screen
+DefaultDependencies=no
+After=local-fs.target
+Before=feednode-kiosk.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/feednode-boot-splash
+Restart=no
+TTYPath=/dev/tty1
+StandardInput=tty-force
+StandardOutput=tty
+StandardError=tty
+
+[Install]
+WantedBy=sysinit.target
