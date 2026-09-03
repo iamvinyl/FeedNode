@@ -39,6 +39,20 @@ def _run_updater(action: str):
     return data
 
 
+def _start_detached_update():
+    return subprocess.run(
+        [
+            "sudo", "/usr/bin/systemd-run",
+            "--unit=feednode-firmware-update",
+            "--collect",
+            str(PYTHON), str(UPDATER), "install",
+        ],
+        text=True,
+        capture_output=True,
+        timeout=15,
+    )
+
+
 @app.post("/api/feed/clear")
 async def clear_feed():
     base.feed.clear()
@@ -66,12 +80,12 @@ async def update_install():
     if not check.get("update_available"):
         return {"ok": True, "message": "FeedNode is already up to date", **check}
 
-    # Let the browser receive the response before the installer restarts services.
-    async def install_later():
-        await asyncio.sleep(0.5)
-        await asyncio.to_thread(_run_updater, "install")
-
-    asyncio.create_task(install_later())
+    result = await asyncio.to_thread(_start_detached_update)
+    if result.returncode:
+        return JSONResponse(
+            {"ok": False, "error": (result.stderr or result.stdout or "Unable to start firmware updater").strip()},
+            status_code=500,
+        )
     return {
         "ok": True,
         "installing": True,
