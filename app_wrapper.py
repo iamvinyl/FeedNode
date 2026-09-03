@@ -40,18 +40,17 @@ def _run_updater(action: str):
 
 
 def _start_detached_update():
-    return subprocess.run(
-        [
-            "sudo", "/usr/bin/systemd-run",
-            "--unit=feednode-firmware-update",
-            "--collect",
-            "--property=EnvironmentFile=/etc/feednode/feednode.env",
-            str(PYTHON), str(UPDATER), "install",
-        ],
-        text=True,
-        capture_output=True,
-        timeout=15,
-    )
+    cmd = [
+        "sudo", "/usr/bin/systemd-run",
+        "--unit=feednode-firmware-update",
+        "--collect",
+    ]
+    # Copy these already-loaded variables into the transient service without
+    # exposing the token value in the systemd-run command line.
+    cmd.append("--setenv=FEEDNODE_GITHUB_REPO")
+    cmd.append("--setenv=FEEDNODE_GITHUB_TOKEN")
+    cmd.extend([str(PYTHON), str(UPDATER), "install"])
+    return subprocess.run(cmd, text=True, capture_output=True, timeout=15)
 
 
 @app.post("/api/feed/clear")
