@@ -31,9 +31,9 @@ def _version_tuple(value: str) -> tuple[int, ...]:
     return tuple(int(part) for part in value.split("."))
 
 
-def _headers() -> dict[str, str]:
+def _headers(accept: str = "application/vnd.github+json") -> dict[str, str]:
     headers = {
-        "Accept": "application/vnd.github+json",
+        "Accept": accept,
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "FeedNode-Updater",
     }
@@ -43,9 +43,47 @@ def _headers() -> dict[str, str]:
     return headers
 
 
+def _asset_map(data: dict) -> dict[str, dict[str, str]]:
+    assets = {}
+    for asset in data.get("assets", []):
+        name = asset.get("name")
+        if not name:
+            continue
+        assets[name] = {
+            "api_url": asset.get("url") or "",
+            "browser_url": asset.get("browser_download_url") or "",
+        }
+    return assets
+
+
+def _download_asset_bytes(asset: dict[str, str], timeout: float = 30.0) -> bytes:
+    api_url = asset.get("api_url") or ""
+    browser_url = asset.get("browser_url") or ""
+    token = (os.getenv("FEEDNODE_GITHUB_TOKEN") or os.getenv("GITHUB_TOKEN") or "").strip()
+
+    # Private repositories must download release assets through the authenticated
+    # release-assets API. browser_download_url can return 404 even with a token.
+    if token and api_url:
+        with httpx.Client(
+            timeout=timeout,
+            follow_redirects=True,
+            headers=_headers("application/octet-stream"),
+        ) as client:
+            response = client.get(api_url)
+            response.raise_for_status()
+            return response.content
+
+    if browser_url:
+        with httpx.Client(timeout=timeout, follow_redirects=True, headers=_headers()) as client:
+            response = client.get(browser_url)
+            response.raise_for_status()
+            return response.content
+
+    raise RuntimeError("Release asset has no usable download URL")
+
+
 def check() -> dict:
-    headers = _headers()
-    with httpx.Client(timeout=20, follow_redirects=True, headers=headers) as client:
+    with httpx.Client(timeout=20, follow_redirects=True, headers=_headers()) as client:
         release = client.get(API)
         if release.status_code in (401, 403, 404):
             raise RuntimeError(
@@ -53,13 +91,18 @@ def check() -> dict:
             )
         release.raise_for_status()
         data = release.json()
-        assets = {asset["name"]: asset["browser_download_url"] for asset in data.get("assets", [])}
-        manifest_url = assets.get("manifest.json")
-        if not manifest_url:
-            raise RuntimeError("Latest release has no manifest.json")
-        manifest_response = client.get(manifest_url)
-        manifest_response.raise_for_status()
-        manifest = manifest_response.json()
+
+    assets = _asset_map(data)
+    manifest_asset = assets.get("manifest.json")
+    if not manifest_asset:
+        raise RuntimeError("Latest release has no manifest.json")
+
+    try:
+        manifest = json.loads(_download_asset_bytes(manifest_asset, timeout=20).decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        raise RuntimeError("Release manifest is not valid UTF-8") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Release manifest is not valid JSON") from exc
 
     if HARDWARE not in manifest.get("hardware", []):
         raise RuntimeError("Release does not support this hardware")
@@ -81,18 +124,13 @@ def check() -> dict:
 def install(info: dict) -> None:
     manifest = info["manifest"]
     asset_name = manifest["asset"]
-    asset_url = info["assets"].get(asset_name)
-    if not asset_url:
+    asset = info["assets"].get(asset_name)
+    if not asset:
         raise RuntimeError(f"Release asset missing: {asset_name}")
 
     with tempfile.TemporaryDirectory(prefix="feednode-update-") as temp:
         archive = Path(temp) / asset_name
-        with httpx.Client(timeout=120, follow_redirects=True, headers=_headers()) as client:
-            with client.stream("GET", asset_url) as response:
-                response.raise_for_status()
-                with archive.open("wb") as handle:
-                    for chunk in response.iter_bytes():
-                        handle.write(chunk)
+        archive.write_bytes(_download_asset_bytes(asset, timeout=120))
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
         if digest.lower() != manifest["sha256"].lower():
             raise RuntimeError("Release checksum verification failed")
