@@ -297,16 +297,29 @@ def render(screen, cfg, feed, fonts):
     orientation = cfg.get("layout", {}).get("orientation", "portrait")
     sw, sh = screen.get_size()
     native_landscape = sw >= sh
-    want_landscape = orientation == "landscape"
 
-    needs_rotation = native_landscape != want_landscape
-    if needs_rotation:
-        logical = pygame.Surface((sh, sw)).convert()
-        render_layout(logical, cfg, feed, fonts)
-        rotated = pygame.transform.rotate(logical, -90 if orientation == "portrait" else 90)
-        screen.blit(rotated, (0, 0))
+    if native_landscape:
+        if orientation == "landscape":
+            render_layout(screen, cfg, feed, fonts)
+        else:
+            logical = pygame.Surface((sh, sw)).convert()
+            render_layout(logical, cfg, feed, fonts)
+            angle = 90 if orientation == "portrait_flipped" else -90
+            rotated = pygame.transform.rotate(logical, angle)
+            screen.blit(rotated, (0, 0))
     else:
-        render_layout(screen, cfg, feed, fonts)
+        if orientation == "landscape":
+            logical = pygame.Surface((sh, sw)).convert()
+            render_layout(logical, cfg, feed, fonts)
+            rotated = pygame.transform.rotate(logical, -90)
+            screen.blit(rotated, (0, 0))
+        elif orientation == "portrait_flipped":
+            logical = pygame.Surface((sw, sh)).convert()
+            render_layout(logical, cfg, feed, fonts)
+            rotated = pygame.transform.rotate(logical, 180)
+            screen.blit(rotated, (0, 0))
+        else:
+            render_layout(screen, cfg, feed, fonts)
 
     pygame.display.flip()
 
