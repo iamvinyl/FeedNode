@@ -1,8 +1,8 @@
 [Unit]
 Description=FeedNode Native HDMI Display (SDL2/KMSDRM)
-After=feednode.service systemd-user-sessions.service
+After=feednode.service systemd-user-sessions.service feednode-splash.service
 Requires=feednode.service
-Conflicts=getty@tty1.service
+Conflicts=getty@tty1.service feednode-splash.service
 
 [Service]
 Type=simple
