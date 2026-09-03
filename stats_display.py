@@ -16,7 +16,10 @@ TWITCH_TOKEN = STATE / "credentials" / "twitch.json"
 DISTRIBUTOR_FILE = Path(__file__).resolve().parent / "config" / "distributor.json"
 STATS_REFRESH_SECONDS = 30.0
 STATS_REDRAW_SECONDS = 2.0
+UPDATE_STATUS_REFRESH_SECONDS = 60.0
+UPDATE_REDRAW_SECONDS = 15.0
 DEFAULT_STATS_FONT_SIZE = 18
+UPDATE_GREEN = "#56F28B"
 
 _original_load_fonts = base.load_fonts
 _original_render_layout = base.render_layout
@@ -27,6 +30,14 @@ _stats = {
     "viewers": "--",
     "followers": "--",
     "subscribers": "--",
+    "updated": 0.0,
+    "refreshing": False,
+}
+
+_update_lock = threading.Lock()
+_update_status = {
+    "available": False,
+    "version": "",
     "updated": 0.0,
     "refreshing": False,
 }
@@ -105,6 +116,36 @@ def get_stats():
         }
 
 
+def _refresh_update_worker():
+    available = False
+    version = ""
+    try:
+        with httpx.Client(timeout=8.0) as client:
+            response = client.get("http://127.0.0.1:8787/api/update/check")
+            if response.status_code == 200:
+                data = response.json()
+                available = bool(data.get("ok") and data.get("update_available"))
+                version = str(data.get("available") or "") if available else ""
+    except Exception:
+        pass
+    finally:
+        with _update_lock:
+            _update_status["available"] = available
+            _update_status["version"] = version
+            _update_status["updated"] = time.monotonic()
+            _update_status["refreshing"] = False
+
+
+def get_update_available():
+    now = time.monotonic()
+    with _update_lock:
+        stale = now - float(_update_status.get("updated", 0.0)) >= UPDATE_STATUS_REFRESH_SECONDS
+        if stale and not _update_status.get("refreshing"):
+            _update_status["refreshing"] = True
+            threading.Thread(target=_refresh_update_worker, daemon=True).start()
+        return bool(_update_status.get("available"))
+
+
 def _legacy_stats_size(style):
     return max(10, min(48, int(style.get("stats_bar_size", DEFAULT_STATS_FONT_SIZE))))
 
@@ -177,6 +218,25 @@ def draw_stats_bar(surface, cfg, fonts, height):
         surface.blit(value_surf, (x + label_surf.get_width() + gap, value_y))
 
 
+def draw_update_icon(surface, top_offset=0):
+    if not get_update_available():
+        return
+    w, h = surface.get_size()
+    radius = max(11, min(18, int(min(w, h) * 0.018)))
+    margin = max(10, radius)
+    cx = w - margin - radius
+    cy = top_offset + margin + radius
+    green = base.color(UPDATE_GREEN, UPDATE_GREEN)
+    thickness = max(2, radius // 5)
+
+    pygame.draw.circle(surface, green, (cx, cy), radius, thickness)
+    shaft_top = cy - radius // 2
+    shaft_bottom = cy + radius // 3
+    pygame.draw.line(surface, green, (cx, shaft_bottom), (cx, shaft_top), thickness)
+    pygame.draw.line(surface, green, (cx, shaft_top), (cx - radius // 3, cy - radius // 6), thickness)
+    pygame.draw.line(surface, green, (cx, shaft_top), (cx + radius // 3, cy - radius // 6), thickness)
+
+
 def draw_item(screen, rect, item, cfg, fonts, anim_ctx):
     if item.get("kind") == "message":
         return _original_draw_item(screen, rect, item, cfg, fonts, anim_ctx)
@@ -190,18 +250,19 @@ def draw_item(screen, rect, item, cfg, fonts, anim_ctx):
 
 def render_layout(surface, cfg, feed, fonts, anim_ctx):
     bar_height = stats_bar_height(cfg, fonts)
-    if bar_height <= 0:
-        return _original_render_layout(surface, cfg, feed, fonts, anim_ctx)
-
     w, h = surface.get_size()
-    bar_height = min(bar_height, max(0, h - 80))
-    if bar_height <= 0:
-        return _original_render_layout(surface, cfg, feed, fonts, anim_ctx)
+    if bar_height > 0:
+        bar_height = min(bar_height, max(0, h - 80))
 
-    content_rect = pygame.Rect(0, bar_height, w, h - bar_height)
-    content_surface = surface.subsurface(content_rect)
-    _original_render_layout(content_surface, cfg, feed, fonts, anim_ctx)
-    draw_stats_bar(surface, cfg, fonts, bar_height)
+    if bar_height > 0:
+        content_rect = pygame.Rect(0, bar_height, w, h - bar_height)
+        content_surface = surface.subsurface(content_rect)
+        _original_render_layout(content_surface, cfg, feed, fonts, anim_ctx)
+        draw_stats_bar(surface, cfg, fonts, bar_height)
+    else:
+        _original_render_layout(surface, cfg, feed, fonts, anim_ctx)
+
+    draw_update_icon(surface, bar_height)
 
 
 def main():
@@ -219,6 +280,7 @@ def main():
     thread.start()
     last_cfg = time.monotonic()
     last_stats_redraw = 0.0
+    last_update_redraw = 0.0
     dirty = True
     animation_active = False
 
@@ -240,6 +302,10 @@ def main():
         if cfg.get("style", {}).get("show_stats_bar", False) and now - last_stats_redraw >= STATS_REDRAW_SECONDS:
             dirty = True
             last_stats_redraw = now
+
+        if now - last_update_redraw >= UPDATE_REDRAW_SECONDS:
+            dirty = True
+            last_update_redraw = now
 
         while True:
             try:
