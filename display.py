@@ -13,6 +13,7 @@ os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 
 import httpx
 import pygame
+from PIL import Image, ImageSequence
 from websockets.sync.client import connect as ws_connect
 
 BASE_URL = os.getenv("FEEDNODE_LOCAL_URL", "http://127.0.0.1:8787")
@@ -23,6 +24,8 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 FRAME_INTERVAL = 0.10
 CONFIG_INTERVAL = 2.0
 MAX_SURFACES = 128
+MAX_ANIMATIONS = 32
+DEFAULT_MAX_ANIMATED_ON_SCREEN = 12
 
 class SurfaceCache:
     def __init__(self, limit=MAX_SURFACES):
@@ -42,8 +45,27 @@ class SurfaceCache:
             self.items.popitem(last=False)
 
 surfaces = SurfaceCache()
+animations = SurfaceCache(MAX_ANIMATIONS)
 client = httpx.Client(timeout=3.0)
+
 feed_queue = Queue()
+
+class AnimatedEmote:
+    def __init__(self, frames, durations_ms):
+        self.frames = frames
+        self.durations_ms = [max(20, int(d or 100)) for d in durations_ms]
+        self.total_ms = max(1, sum(self.durations_ms))
+
+    def frame_at(self, now_ms):
+        if len(self.frames) <= 1:
+            return self.frames[0]
+        pos = int(now_ms) % self.total_ms
+        elapsed = 0
+        for frame, duration in zip(self.frames, self.durations_ms):
+            elapsed += duration
+            if pos < elapsed:
+                return frame
+        return self.frames[-1]
 
 def websocket_worker():
     url = BASE_URL.replace("http://", "ws://").replace("https://", "wss://") + "/ws"
@@ -58,11 +80,13 @@ def websocket_worker():
         except Exception:
             time.sleep(1.0)
 
+
 def color(value, fallback):
     try:
         return pygame.Color(value)
     except Exception:
         return pygame.Color(fallback)
+
 
 def wait_for_backend():
     while True:
@@ -74,6 +98,7 @@ def wait_for_backend():
             pass
         time.sleep(0.25)
 
+
 def get_json(path, fallback):
     try:
         r = client.get(BASE_URL + path)
@@ -82,12 +107,55 @@ def get_json(path, fallback):
     except Exception:
         return fallback
 
-def image_url_for_emote(fragment):
-    emote = (fragment or {}).get("emote") or {}
-    eid = str(emote.get("id") or "")
+
+def emote_id(fragment):
+    return str(((fragment or {}).get("emote") or {}).get("id") or "")
+
+def image_url_for_emote(fragment, animated=False):
+    eid = emote_id(fragment)
     if not eid:
         return None
-    return f"https://static-cdn.jtvnw.net/emoticons/v2/{eid}/default/dark/2.0"
+    fmt = "animated" if animated else "static"
+    return f"https://static-cdn.jtvnw.net/emoticons/v2/{eid}/{fmt}/dark/2.0"
+
+def scale_surface(surf, size):
+    w, h = surf.get_size()
+    if w <= 0 or h <= 0:
+        return None
+    scale = min(size / w, size / h)
+    target = (max(1, int(w * scale)), max(1, int(h * scale)))
+    return pygame.transform.smoothscale(surf, target)
+
+def fetch_animated_emote(fragment, size):
+    eid = emote_id(fragment)
+    if not eid:
+        return None
+    key = (eid, int(size))
+    cached = animations.get(key)
+    if cached is not None:
+        return cached
+    try:
+        r = client.get(image_url_for_emote(fragment, animated=True))
+        r.raise_for_status()
+        image = Image.open(io.BytesIO(r.content))
+        frames, durations = [], []
+        for pil_frame in ImageSequence.Iterator(image):
+            rgba = pil_frame.convert("RGBA")
+            raw = rgba.tobytes()
+            surf = pygame.image.fromstring(raw, rgba.size, "RGBA").convert_alpha()
+            surf = scale_surface(surf, size)
+            if surf is not None:
+                frames.append(surf)
+                durations.append(pil_frame.info.get("duration", image.info.get("duration", 100)))
+            if len(frames) >= 60:
+                break
+        if len(frames) <= 1:
+            return None
+        animated = AnimatedEmote(frames, durations)
+        animations.put(key, animated)
+        return animated
+    except Exception:
+        return None
 
 def fetch_surface(url, size):
     if not url:
@@ -100,38 +168,28 @@ def fetch_surface(url, size):
         r = client.get(url)
         r.raise_for_status()
         surf = pygame.image.load(io.BytesIO(r.content)).convert_alpha()
-        w, h = surf.get_size()
-        if w <= 0 or h <= 0:
+        surf = scale_surface(surf, size)
+        if surf is None:
             return None
-        scale = min(size / w, size / h)
-        target = (max(1, int(w * scale)), max(1, int(h * scale)))
-        surf = pygame.transform.smoothscale(surf, target)
         surfaces.put(key, surf)
         return surf
     except Exception:
         return None
 
+
 def load_fonts(cfg):
     style = cfg.get("style", {})
     family = style.get("font_family", "DejaVu Sans")
     path = pygame.font.match_font(family) or pygame.font.match_font("dejavusans")
-
     message = pygame.font.Font(path, max(12, int(style.get("message_size", 24))))
     user = pygame.font.Font(path, max(12, int(style.get("username_size", 21))))
     event = pygame.font.Font(path, max(12, int(style.get("event_size", 20))))
     meta = pygame.font.Font(path, max(10, int(style.get("username_size", 21) * 0.70)))
     event_title = pygame.font.Font(path, max(10, int(style.get("username_size", 21) * 0.70)))
-
     user.set_bold(True)
     event_title.set_bold(True)
+    return {"message": message, "user": user, "event": event, "meta": meta, "event_title": event_title}
 
-    return {
-        "message": message,
-        "user": user,
-        "event": event,
-        "meta": meta,
-        "event_title": event_title,
-    }
 
 def wrap_text(font, text, max_width):
     words = str(text or "").split()
@@ -148,7 +206,8 @@ def wrap_text(font, text, max_width):
     lines.append(current)
     return lines
 
-def draw_message_body(screen, x, y, width, item, cfg, fonts):
+
+def draw_message_body(screen, x, y, width, item, cfg, fonts, anim_ctx):
     style = cfg.get("style", {})
     text_color = color(style.get("text"), "#F4F7FA")
     line_h = fonts["message"].get_linesize()
@@ -162,7 +221,15 @@ def draw_message_body(screen, x, y, width, item, cfg, fonts):
         ftext = frag.get("text", "")
         if ftype == "emote" and frag.get("emote"):
             emote_size = max(line_h, int(style.get("message_size", 24) * 1.25))
-            surf = fetch_surface(image_url_for_emote(frag), emote_size)
+            surf = None
+            if style.get("animated_emotes", True) and anim_ctx["used"] < anim_ctx["limit"]:
+                animated = fetch_animated_emote(frag, emote_size)
+                if animated is not None:
+                    surf = animated.frame_at(anim_ctx["now_ms"])
+                    anim_ctx["used"] += 1
+                    anim_ctx["active"] = True
+            if surf is None:
+                surf = fetch_surface(image_url_for_emote(frag, animated=False), emote_size)
             if surf:
                 ew, eh = surf.get_size()
                 if cursor_x + ew > x + width and cursor_x > x:
@@ -185,6 +252,7 @@ def draw_message_body(screen, x, y, width, item, cfg, fonts):
             cursor_x += tw
     return cursor_y + line_h
 
+
 def measure_item(item, cfg, fonts, width):
     style = cfg.get("style", {})
     spacing = int(style.get("spacing", 12))
@@ -198,7 +266,8 @@ def measure_item(item, cfg, fonts, width):
     content_h = fonts["user"].get_linesize() + 4 + max(1, len(lines)) * fonts["message"].get_linesize()
     return max(avatar, content_h) + spacing * 2
 
-def draw_item(screen, rect, item, cfg, fonts):
+
+def draw_item(screen, rect, item, cfg, fonts, anim_ctx):
     style = cfg.get("style", {})
     spacing = int(style.get("spacing", 12))
     panel = color(style.get("panel"), "#10141A")
@@ -241,9 +310,10 @@ def draw_item(screen, rect, item, cfg, fonts):
         meta = fonts["meta"].render(str(item.get("platform") or ""), True, muted)
         screen.blit(meta, (mx, y + max(0, name.get_height()-meta.get_height())))
     y += fonts["user"].get_linesize() + 3
-    draw_message_body(screen, x, y, rect.right - spacing - x, item, cfg, fonts)
+    draw_message_body(screen, x, y, rect.right - spacing - x, item, cfg, fonts, anim_ctx)
 
-def draw_column(screen, rect, items, cfg, fonts):
+
+def draw_column(screen, rect, items, cfg, fonts, anim_ctx):
     style = cfg.get("style", {})
     spacing = int(style.get("spacing", 12))
     bg = color(style.get("background"), "#080A0D")
@@ -262,11 +332,12 @@ def draw_column(screen, rect, items, cfg, fonts):
     screen.set_clip(rect)
     for item, h in zip(items, heights):
         card = pygame.Rect(rect.x + spacing, y, rect.width - spacing*2, h)
-        draw_item(screen, card, item, cfg, fonts)
+        draw_item(screen, card, item, cfg, fonts, anim_ctx)
         y += h + spacing
     screen.set_clip(old_clip)
 
-def render_layout(surface, cfg, feed, fonts):
+
+def render_layout(surface, cfg, feed, fonts, anim_ctx):
     style = cfg.get("style", {})
     layout = cfg.get("layout", {})
     surface.fill(color(style.get("background"), "#080A0D"))
@@ -277,7 +348,7 @@ def render_layout(surface, cfg, feed, fonts):
     ratio = max(10, min(90, int(layout.get("split_ratio", 35)))) / 100.0
 
     if mode == "combined":
-        draw_column(surface, pygame.Rect(0, 0, w, h), list(feed), cfg, fonts)
+        draw_column(surface, pygame.Rect(0, 0, w, h), list(feed), cfg, fonts, anim_ctx)
     else:
         activities = [i for i in feed if i.get("kind") != "message"]
         messages = [i for i in feed if i.get("kind") == "message"]
@@ -290,38 +361,46 @@ def render_layout(surface, cfg, feed, fonts):
             cut = int(h * ratio)
             first = pygame.Rect(0, 0, w, cut)
             second = pygame.Rect(0, cut, w, h-cut)
-        draw_column(surface, first, activities if first_activity else messages, cfg, fonts)
-        draw_column(surface, second, messages if first_activity else activities, cfg, fonts)
+        draw_column(surface, first, activities if first_activity else messages, cfg, fonts, anim_ctx)
+        draw_column(surface, second, messages if first_activity else activities, cfg, fonts, anim_ctx)
 
 def render(screen, cfg, feed, fonts):
     orientation = cfg.get("layout", {}).get("orientation", "portrait")
+    style = cfg.get("style", {})
     sw, sh = screen.get_size()
     native_landscape = sw >= sh
+    anim_ctx = {
+        "now_ms": int(time.monotonic() * 1000),
+        "used": 0,
+        "limit": max(0, min(30, int(style.get("max_animated_emotes", DEFAULT_MAX_ANIMATED_ON_SCREEN)))),
+        "active": False,
+    }
 
     if native_landscape:
         if orientation == "landscape":
-            render_layout(screen, cfg, feed, fonts)
+            render_layout(screen, cfg, feed, fonts, anim_ctx)
         else:
             logical = pygame.Surface((sh, sw)).convert()
-            render_layout(logical, cfg, feed, fonts)
+            render_layout(logical, cfg, feed, fonts, anim_ctx)
             angle = 90 if orientation == "portrait_flipped" else -90
             rotated = pygame.transform.rotate(logical, angle)
             screen.blit(rotated, (0, 0))
     else:
         if orientation == "landscape":
             logical = pygame.Surface((sh, sw)).convert()
-            render_layout(logical, cfg, feed, fonts)
+            render_layout(logical, cfg, feed, fonts, anim_ctx)
             rotated = pygame.transform.rotate(logical, -90)
             screen.blit(rotated, (0, 0))
         elif orientation == "portrait_flipped":
             logical = pygame.Surface((sw, sh)).convert()
-            render_layout(logical, cfg, feed, fonts)
+            render_layout(logical, cfg, feed, fonts, anim_ctx)
             rotated = pygame.transform.rotate(logical, 180)
             screen.blit(rotated, (0, 0))
         else:
-            render_layout(screen, cfg, feed, fonts)
+            render_layout(screen, cfg, feed, fonts, anim_ctx)
 
     pygame.display.flip()
+    return anim_ctx["active"]
 
 def main():
     wait_for_backend()
@@ -338,6 +417,7 @@ def main():
     thread.start()
     last_cfg = time.monotonic()
     dirty = True
+    animation_active = False
 
     clock = pygame.time.Clock()
     while True:
@@ -364,8 +444,8 @@ def main():
                 del feed[:-100]
             dirty = True
 
-        if dirty:
-            render(screen, cfg, feed, fonts)
+        if dirty or animation_active:
+            animation_active = render(screen, cfg, feed, fonts)
             dirty = False
 
         clock.tick(max(1, int(1.0 / FRAME_INTERVAL)))
