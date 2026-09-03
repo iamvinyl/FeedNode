@@ -11,6 +11,7 @@ import app as base
 app = base.app
 UPDATER = Path(__file__).resolve().parent / "updater" / "updater.py"
 PYTHON = Path("/opt/feednode/venv/bin/python")
+FIRMWARE_LAUNCHER = Path("/usr/local/bin/feednode-firmware-update")
 UPDATE_CACHE_SECONDS = 300.0
 _update_cache = {"data": None, "checked": 0.0}
 _update_lock = asyncio.Lock()
@@ -61,17 +62,12 @@ async def _update_status(force=False):
 
 
 def _start_detached_update():
-    cmd = [
-        "sudo", "/usr/bin/systemd-run",
-        "--unit=feednode-firmware-update",
-        "--collect",
-    ]
-    # Copy these already-loaded variables into the transient service without
-    # exposing the token value in the systemd-run command line.
-    cmd.append("--setenv=FEEDNODE_GITHUB_REPO")
-    cmd.append("--setenv=FEEDNODE_GITHUB_TOKEN")
-    cmd.extend([str(PYTHON), str(UPDATER), "install"])
-    return subprocess.run(cmd, text=True, capture_output=True, timeout=15)
+    return subprocess.run(
+        ["sudo", str(FIRMWARE_LAUNCHER)],
+        text=True,
+        capture_output=True,
+        timeout=15,
+    )
 
 
 @app.post("/api/feed/clear")
