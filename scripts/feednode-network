@@ -4,16 +4,44 @@ ACTION=${1:-}
 AP_NAME="FeedNode-Setup"
 AP_CON="feednode-setup"
 WLAN="wlan0"
+
+ensure_wifi_ready() {
+  nmcli radio wifi on >/dev/null 2>&1 || true
+  nmcli device set "$WLAN" managed yes >/dev/null 2>&1 || true
+  ip link set "$WLAN" up >/dev/null 2>&1 || true
+}
+
+start_ap() {
+  ensure_wifi_ready
+  nmcli con down "$AP_CON" >/dev/null 2>&1 || true
+  nmcli con delete "$AP_CON" >/dev/null 2>&1 || true
+  nmcli con add type wifi ifname "$WLAN" con-name "$AP_CON" autoconnect yes ssid "$AP_NAME"
+  nmcli con modify "$AP_CON" \
+    802-11-wireless.mode ap \
+    802-11-wireless.band bg \
+    ipv4.method shared \
+    ipv6.method disabled \
+    connection.autoconnect yes \
+    connection.autoconnect-priority 100
+  nmcli con up "$AP_CON"
+}
+
+ap_active() {
+  [ "$(nmcli -g GENERAL.CONNECTION device show "$WLAN" 2>/dev/null || true)" = "$AP_CON" ]
+}
+
 case "$ACTION" in
   ap)
-    nmcli con down "$AP_CON" >/dev/null 2>&1 || true
-    nmcli con delete "$AP_CON" >/dev/null 2>&1 || true
-    nmcli con add type wifi ifname "$WLAN" con-name "$AP_CON" autoconnect no ssid "$AP_NAME"
-    nmcli con modify "$AP_CON" 802-11-wireless.mode ap 802-11-wireless.band bg ipv4.method shared ipv6.method disabled
-    nmcli con up "$AP_CON"
+    if ! start_ap || ! ap_active; then
+      systemctl restart NetworkManager
+      sleep 3
+      start_ap
+    fi
+    ap_active || { echo "Unable to start $AP_NAME on $WLAN" >&2; exit 1; }
     ;;
   connect)
     SSID=${2:?SSID required}; PASS=${3:-}
+    ensure_wifi_ready
     nmcli con down "$AP_CON" >/dev/null 2>&1 || true
     if [ -n "$PASS" ]; then
       nmcli dev wifi connect "$SSID" password "$PASS" ifname "$WLAN"
@@ -22,9 +50,13 @@ case "$ACTION" in
     fi
     ;;
   clear)
-    # Remove saved Wi-Fi client connections but preserve our setup AP profile.
+    ensure_wifi_ready
+    # Remove every saved Wi-Fi profile. The setup AP is recreated from scratch
+    # below so factory reset cannot inherit a stale/broken AP profile.
     while IFS=: read -r name type; do
-      if [ "$type" = "802-11-wireless" ] && [ "$name" != "$AP_CON" ]; then nmcli con delete "$name" || true; fi
+      if [ "$type" = "802-11-wireless" ]; then
+        nmcli con delete "$name" >/dev/null 2>&1 || true
+      fi
     done < <(nmcli -t -f NAME,TYPE con show)
     "$0" ap
     ;;
