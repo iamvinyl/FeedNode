@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import subprocess
+import tarfile
 import tempfile
 from pathlib import Path
 
@@ -15,7 +16,6 @@ import httpx
 REPO = os.getenv("FEEDNODE_GITHUB_REPO", "iamvinyl/FeedNode")
 API = f"https://api.github.com/repos/{REPO}/releases/latest"
 CURRENT_VERSION = Path(os.getenv("FEEDNODE_VERSION_FILE", "/opt/feednode/current/VERSION"))
-UPDATE_SCRIPT = Path(os.getenv("FEEDNODE_UPDATE_SCRIPT", "/opt/feednode/current/scripts/update.sh"))
 SPLASH_MODE = Path("/run/feednode-splash-mode")
 HARDWARE = "pi-zero-2w"
 
@@ -62,8 +62,6 @@ def _download_asset_bytes(asset: dict[str, str], timeout: float = 30.0) -> bytes
     browser_url = asset.get("browser_url") or ""
     token = (os.getenv("FEEDNODE_GITHUB_TOKEN") or os.getenv("GITHUB_TOKEN") or "").strip()
 
-    # Private repositories must download release assets through the authenticated
-    # release-assets API. browser_download_url can return 404 even with a token.
     if token and api_url:
         with httpx.Client(
             timeout=timeout,
@@ -103,8 +101,29 @@ def _leave_update_display() -> None:
         SPLASH_MODE.unlink(missing_ok=True)
     except Exception:
         pass
-    # Starting kiosk stops the conflicting splash service automatically.
     subprocess.run(["/usr/bin/systemctl", "restart", "feednode-kiosk.service"], check=False)
+
+
+def _extract_release_update_script(archive: Path, temp_root: Path) -> Path:
+    """Extract the installer from the *new* release so updates are self-bootstrapping."""
+    destination = temp_root / "release-update.sh"
+    with tarfile.open(archive, "r:gz") as tf:
+        member = next(
+            (
+                item
+                for item in tf.getmembers()
+                if item.isfile() and item.name.rstrip("/").endswith("/scripts/update.sh")
+            ),
+            None,
+        )
+        if member is None:
+            raise RuntimeError("Release is missing scripts/update.sh")
+        source = tf.extractfile(member)
+        if source is None:
+            raise RuntimeError("Unable to read release update script")
+        destination.write_bytes(source.read())
+    destination.chmod(0o700)
+    return destination
 
 
 def check() -> dict:
@@ -147,6 +166,9 @@ def check() -> dict:
 
 
 def install(info: dict) -> None:
+    if os.geteuid() != 0:
+        raise RuntimeError("Firmware installation must run as root")
+
     manifest = info["manifest"]
     asset_name = manifest["asset"]
     asset = info["assets"].get(asset_name)
@@ -156,12 +178,19 @@ def install(info: dict) -> None:
     display_taken = _enter_update_display()
     try:
         with tempfile.TemporaryDirectory(prefix="feednode-update-") as temp:
-            archive = Path(temp) / asset_name
+            temp_root = Path(temp)
+            archive = temp_root / asset_name
             archive.write_bytes(_download_asset_bytes(asset, timeout=120))
             digest = hashlib.sha256(archive.read_bytes()).hexdigest()
             if digest.lower() != manifest["sha256"].lower():
                 raise RuntimeError("Release checksum verification failed")
-            subprocess.run(["sudo", str(UPDATE_SCRIPT), str(archive), manifest["version"]], check=True)
+
+            release_update_script = _extract_release_update_script(archive, temp_root)
+            subprocess.run(
+                [str(release_update_script), str(archive), manifest["version"]],
+                check=True,
+                env=os.environ.copy(),
+            )
     finally:
         if display_taken:
             _leave_update_display()
