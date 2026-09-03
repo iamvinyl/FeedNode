@@ -17,9 +17,12 @@ DISTRIBUTOR_FILE = Path(__file__).resolve().parent / "config" / "distributor.jso
 STATS_REFRESH_SECONDS = 30.0
 STATS_REDRAW_SECONDS = 2.0
 DEFAULT_STATS_FONT_SIZE = 18
+DEFAULT_STATS_TITLE_SIZE = 14
+DEFAULT_STATS_NUMBER_SIZE = 20
 
 _original_load_fonts = base.load_fonts
 _original_render_layout = base.render_layout
+_original_draw_item = base.draw_item
 
 _stats_lock = threading.Lock()
 _stats = {
@@ -104,15 +107,24 @@ def get_stats():
         }
 
 
+def _legacy_stats_size(style):
+    return max(10, min(48, int(style.get("stats_bar_size", DEFAULT_STATS_FONT_SIZE))))
+
+
 def load_fonts(cfg):
     fonts = _original_load_fonts(cfg)
     style = cfg.get("style", {})
     family = style.get("font_family", "DejaVu Sans")
     path = pygame.font.match_font(family) or pygame.font.match_font("dejavusans")
-    stats_size = max(10, min(48, int(style.get("stats_bar_size", DEFAULT_STATS_FONT_SIZE))))
-    stats_font = pygame.font.Font(path, stats_size)
-    stats_font.set_bold(True)
-    fonts["stats"] = stats_font
+    legacy = _legacy_stats_size(style)
+    title_size = max(8, min(48, int(style.get("stats_title_size", min(legacy, DEFAULT_STATS_TITLE_SIZE)))))
+    number_size = max(10, min(64, int(style.get("stats_number_size", max(legacy, DEFAULT_STATS_NUMBER_SIZE)))))
+    title_font = pygame.font.Font(path, title_size)
+    number_font = pygame.font.Font(path, number_size)
+    title_font.set_bold(True)
+    number_font.set_bold(True)
+    fonts["stats_title"] = title_font
+    fonts["stats_number"] = number_font
     return fonts
 
 
@@ -126,19 +138,23 @@ def _format_count(value):
 def stats_bar_height(cfg, fonts):
     if not cfg.get("style", {}).get("show_stats_bar", False):
         return 0
-    return fonts["stats"].get_linesize() + 18
+    return max(fonts["stats_title"].get_linesize(), fonts["stats_number"].get_linesize()) + 20
 
 
 def draw_stats_bar(surface, cfg, fonts, height):
     style = cfg.get("style", {})
-    panel = base.color(style.get("panel"), "#10141A")
-    muted = base.color(style.get("muted"), "#8C98A6")
-    text = base.color(style.get("text"), "#F4F7FA")
-    accent = base.color(style.get("accent"), "#39E6D0")
+    panel = base.color(style.get("stats_bar_panel", style.get("panel")), "#10141A")
+    number_color = base.color(style.get("stats_number_color", style.get("text")), "#F4F7FA")
+    underline = base.color(style.get("stats_underline_color", style.get("accent")), "#39E6D0")
+    title_colors = (
+        base.color(style.get("stats_viewers_title_color", style.get("muted")), "#8C98A6"),
+        base.color(style.get("stats_followers_title_color", style.get("muted")), "#8C98A6"),
+        base.color(style.get("stats_subs_title_color", style.get("muted")), "#8C98A6"),
+    )
     stats = get_stats()
 
     pygame.draw.rect(surface, panel, pygame.Rect(0, 0, surface.get_width(), height))
-    pygame.draw.line(surface, accent, (0, height - 1), (surface.get_width(), height - 1), 1)
+    pygame.draw.line(surface, underline, (0, height - 1), (surface.get_width(), height - 1), 1)
 
     entries = (
         ("VIEWERS", stats["viewers"]),
@@ -146,16 +162,31 @@ def draw_stats_bar(surface, cfg, fonts, height):
         ("SUBS", stats["subscribers"]),
     )
     column_width = surface.get_width() / 3.0
-    y = max(0, (height - fonts["stats"].get_linesize()) // 2)
 
     for idx, (label, value) in enumerate(entries):
-        label_surf = fonts["stats"].render(label + " ", True, muted)
-        value_surf = fonts["stats"].render(_format_count(value), True, text)
-        total_width = label_surf.get_width() + value_surf.get_width()
+        label_surf = fonts["stats_title"].render(label, True, title_colors[idx])
+        value_surf = fonts["stats_number"].render(_format_count(value), True, number_color)
+        gap = max(5, int(fonts["stats_number"].get_height() * 0.28))
+        total_width = label_surf.get_width() + gap + value_surf.get_width()
         center_x = int((idx + 0.5) * column_width)
         x = int(center_x - total_width / 2)
-        surface.blit(label_surf, (x, y))
-        surface.blit(value_surf, (x + label_surf.get_width(), y))
+        center_y = height // 2
+        label_y = center_y - label_surf.get_height() // 2
+        value_y = center_y - value_surf.get_height() // 2
+        surface.blit(label_surf, (x, label_y))
+        surface.blit(value_surf, (x + label_surf.get_width() + gap, value_y))
+
+
+def draw_item(screen, rect, item, cfg, fonts, anim_ctx):
+    if item.get("kind") == "message":
+        return _original_draw_item(screen, rect, item, cfg, fonts, anim_ctx)
+
+    # Events use their own card/panel color while inheriting all other feed style.
+    event_cfg = dict(cfg)
+    event_style = dict(cfg.get("style", {}))
+    event_style["panel"] = event_style.get("event_panel", event_style.get("panel", "#10141A"))
+    event_cfg["style"] = event_style
+    return _original_draw_item(screen, rect, item, event_cfg, fonts, anim_ctx)
 
 
 def render_layout(surface, cfg, feed, fonts, anim_ctx):
@@ -229,6 +260,7 @@ def main():
 
 
 base.load_fonts = load_fonts
+base.draw_item = draw_item
 base.render_layout = render_layout
 
 if __name__ == "__main__":
