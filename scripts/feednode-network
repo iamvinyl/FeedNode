@@ -26,6 +26,18 @@ start_ap() {
   nmcli con up "$AP_CON"
 }
 
+stop_ap_for_client() {
+  nmcli con down "$AP_CON" >/dev/null 2>&1 || true
+  nmcli con delete "$AP_CON" >/dev/null 2>&1 || true
+  ensure_wifi_ready
+  nmcli device disconnect "$WLAN" >/dev/null 2>&1 || true
+  sleep 1
+  nmcli device set "$WLAN" managed yes >/dev/null 2>&1 || true
+  nmcli radio wifi on >/dev/null 2>&1 || true
+  nmcli device wifi rescan ifname "$WLAN" >/dev/null 2>&1 || true
+  sleep 2
+}
+
 ap_active() {
   [ "$(nmcli -g GENERAL.CONNECTION device show "$WLAN" 2>/dev/null || true)" = "$AP_CON" ]
 }
@@ -41,12 +53,19 @@ case "$ACTION" in
     ;;
   connect)
     SSID=${2:?SSID required}; PASS=${3:-}
-    ensure_wifi_ready
-    nmcli con down "$AP_CON" >/dev/null 2>&1 || true
+    stop_ap_for_client
     if [ -n "$PASS" ]; then
-      nmcli dev wifi connect "$SSID" password "$PASS" ifname "$WLAN"
+      if ! nmcli dev wifi connect "$SSID" password "$PASS" ifname "$WLAN"; then
+        echo "Unable to connect to $SSID; restoring $AP_NAME" >&2
+        start_ap || true
+        exit 1
+      fi
     else
-      nmcli dev wifi connect "$SSID" ifname "$WLAN"
+      if ! nmcli dev wifi connect "$SSID" ifname "$WLAN"; then
+        echo "Unable to connect to $SSID; restoring $AP_NAME" >&2
+        start_ap || true
+        exit 1
+      fi
     fi
     ;;
   clear)
