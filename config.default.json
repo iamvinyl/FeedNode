@@ -35,11 +35,8 @@
     "stats_bar_panel": "#10141A",
     "stats_title_size": 14,
     "stats_number_size": 20,
-    "stats_number_color": "#F4F7FA",
-    "stats_viewers_title_color": "#8C98A6",
-    "stats_followers_title_color": "#8C98A6",
-    "stats_subs_title_color": "#8C98A6",
-    "stats_underline_color": "#39E6D0"
+    "stats_color": "#8C98A6",
+    "stats_accent": "#F4F7FA"
   },
   "platforms": {
     "twitch": {
