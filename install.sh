@@ -14,6 +14,7 @@ printf '\nFeedNode %s replacement install\n' "$VERSION"
 
 # Stop the current display/app before replacing release files.
 systemctl stop feednode-kiosk.service >/dev/null 2>&1 || true
+systemctl stop feednode-splash.service >/dev/null 2>&1 || true
 systemctl stop feednode.service >/dev/null 2>&1 || true
 apt purge -y cage cog chromium chromium-browser openbox xserver-xorg xinit unclutter >/dev/null 2>&1 || true
 
@@ -52,8 +53,10 @@ install -m 755 "$RELEASE/scripts/feednode-network" /usr/local/bin/feednode-netwo
 install -m 755 "$RELEASE/scripts/feednode-reset" /usr/local/bin/feednode-reset
 install -m 755 "$RELEASE/scripts/firstboot-network" /usr/local/bin/feednode-firstboot-network
 install -m 755 "$RELEASE/scripts/kiosk.sh" /usr/local/bin/feednode-kiosk
+install -m 755 "$RELEASE/scripts/boot-splash.sh" /usr/local/bin/feednode-boot-splash
 install -m 644 services/feednode.service /etc/systemd/system/feednode.service
 install -m 644 services/feednode-network.service /etc/systemd/system/feednode-network.service
+install -m 644 services/feednode-splash.service /etc/systemd/system/feednode-splash.service
 install -m 644 services/feednode-kiosk.service /etc/systemd/system/feednode-kiosk.service
 install -m 644 services/feednode-updater.service /etc/systemd/system/feednode-updater.service
 install -m 644 services/feednode-updater.timer /etc/systemd/system/feednode-updater.timer
@@ -73,9 +76,35 @@ chmod 640 /etc/feednode/feednode.env
 chown root:feednode /etc/feednode/feednode.env
 fi
 
+# Make HDMI boot look like an appliance instead of exposing the Linux console.
+CMDLINE_FILE=""
+if [ -f /boot/firmware/cmdline.txt ]; then
+  CMDLINE_FILE=/boot/firmware/cmdline.txt
+elif [ -f /boot/cmdline.txt ]; then
+  CMDLINE_FILE=/boot/cmdline.txt
+fi
+if [ -n "$CMDLINE_FILE" ]; then
+  for arg in quiet loglevel=0 systemd.show_status=false rd.systemd.show_status=false vt.global_cursor_default=0 logo.nologo; do
+    if ! grep -qw "$arg" "$CMDLINE_FILE"; then
+      sed -i "1 s|$| $arg|" "$CMDLINE_FILE"
+    fi
+  done
+fi
+
+BOOT_CONFIG=""
+if [ -f /boot/firmware/config.txt ]; then
+  BOOT_CONFIG=/boot/firmware/config.txt
+elif [ -f /boot/config.txt ]; then
+  BOOT_CONFIG=/boot/config.txt
+fi
+if [ -n "$BOOT_CONFIG" ] && ! grep -Eq '^disable_splash=1$' "$BOOT_CONFIG"; then
+  printf '\n# FeedNode appliance boot\ndisable_splash=1\n' >> "$BOOT_CONFIG"
+fi
+
 systemctl daemon-reload
 systemctl disable --now getty@tty1.service >/dev/null 2>&1 || true
 systemctl enable feednode-network.service
+systemctl enable feednode-splash.service
 systemctl enable --now feednode.service
 systemctl enable --now feednode-kiosk.service
 systemctl enable --now feednode-updater.timer
@@ -84,6 +113,7 @@ systemctl enable --now avahi-daemon
 
 printf '\nFeedNode %s installed.\n' "$VERSION"
 printf 'Settings: http://feednode.local:8787/settings\n'
-printf 'HDMI: native pygame/SDL2 KMSDRM renderer (no browser)\n'
+printf 'HDMI: FeedNode loading splash -> native pygame/SDL2 KMSDRM renderer\n'
 printf 'Existing Wi-Fi, layout settings, and Twitch credentials were preserved.\n'
-printf 'If Twitch was already authorized, EventSub will start automatically.\n\n'
+printf 'If Twitch was already authorized, EventSub will start automatically.\n'
+printf 'Reboot once to apply the quiet HDMI boot screen.\n\n'
