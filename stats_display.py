@@ -142,17 +142,19 @@ def stats_bar_height(cfg, fonts):
 def draw_stats_bar(surface, cfg, fonts, height):
     style = cfg.get("style", {})
     panel = base.color(style.get("stats_bar_panel", style.get("panel")), "#10141A")
-    number_color = base.color(style.get("stats_number_color", style.get("text")), "#F4F7FA")
-    underline = base.color(style.get("stats_underline_color", style.get("accent")), "#39E6D0")
-    title_colors = (
-        base.color(style.get("stats_viewers_title_color", style.get("muted")), "#8C98A6"),
-        base.color(style.get("stats_followers_title_color", style.get("muted")), "#8C98A6"),
-        base.color(style.get("stats_subs_title_color", style.get("muted")), "#8C98A6"),
+    stats_color_value = (
+        style.get("stats_color")
+        or style.get("stats_viewers_title_color")
+        or style.get("stats_underline_color")
+        or style.get("muted")
     )
+    stats_accent_value = style.get("stats_accent") or style.get("stats_number_color") or style.get("text")
+    stats_color = base.color(stats_color_value, "#8C98A6")
+    stats_accent = base.color(stats_accent_value, "#F4F7FA")
     stats = get_stats()
 
     pygame.draw.rect(surface, panel, pygame.Rect(0, 0, surface.get_width(), height))
-    pygame.draw.line(surface, underline, (0, height - 1), (surface.get_width(), height - 1), 1)
+    pygame.draw.line(surface, stats_color, (0, height - 1), (surface.get_width(), height - 1), 1)
 
     entries = (
         ("VIEWERS", stats["viewers"]),
@@ -162,8 +164,8 @@ def draw_stats_bar(surface, cfg, fonts, height):
     column_width = surface.get_width() / 3.0
 
     for idx, (label, value) in enumerate(entries):
-        label_surf = fonts["stats_title"].render(label, True, title_colors[idx])
-        value_surf = fonts["stats_number"].render(_format_count(value), True, number_color)
+        label_surf = fonts["stats_title"].render(label, True, stats_color)
+        value_surf = fonts["stats_number"].render(_format_count(value), True, stats_accent)
         gap = max(5, int(fonts["stats_number"].get_height() * 0.28))
         total_width = label_surf.get_width() + gap + value_surf.get_width()
         center_x = int((idx + 0.5) * column_width)
