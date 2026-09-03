@@ -3,12 +3,39 @@ set -euo pipefail
 STATE=/var/lib/feednode
 APP=/opt/feednode
 LEVEL=${1:-}
+
+schedule_recovery() {
+  # Run recovery outside feednode.service's cgroup so restarting the backend
+  # cannot terminate the reset helper or leave the HDMI display stranded.
+  systemctl stop feednode-reset-recover.service >/dev/null 2>&1 || true
+  systemctl reset-failed feednode-reset-recover.service >/dev/null 2>&1 || true
+  systemd-run \
+    --unit=feednode-reset-recover \
+    --collect \
+    --on-active=2s \
+    /bin/bash -c '
+      systemctl restart avahi-daemon.service || true
+      systemctl restart feednode.service
+      for i in $(seq 1 20); do
+        if curl -fsS http://127.0.0.1:8787/api/status >/dev/null 2>&1; then
+          systemctl restart feednode-kiosk.service
+          exit 0
+        fi
+        sleep 0.5
+      done
+      systemctl restart feednode-kiosk.service || true
+      exit 1
+    ' >/dev/null
+}
+
 case "$LEVEL" in
  wifi)
    /usr/local/bin/feednode-network clear
+   schedule_recovery
    ;;
  accounts)
    rm -rf "$STATE/credentials"/*
+   systemctl restart feednode-kiosk.service >/dev/null 2>&1 || true
    ;;
  cache)
    rm -rf "$STATE/cache"/*
@@ -24,6 +51,7 @@ case "$LEVEL" in
      echo "Factory reset completed, but FeedNode-Setup failed to activate" >&2
      exit 1
    fi
+   schedule_recovery
    ;;
  *) echo "usage: feednode-reset {wifi|accounts|cache|factory}" >&2; exit 2;;
 esac
