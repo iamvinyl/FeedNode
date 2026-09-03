@@ -12,7 +12,6 @@ STATE=/var/lib/feednode
 
 printf '\nFeedNode %s replacement install\n' "$VERSION"
 
-# Stop the current display/app before replacing release files.
 systemctl stop feednode-kiosk.service >/dev/null 2>&1 || true
 systemctl stop feednode-splash.service >/dev/null 2>&1 || true
 systemctl stop feednode.service >/dev/null 2>&1 || true
@@ -54,6 +53,7 @@ install -m 755 "$RELEASE/scripts/feednode-reset" /usr/local/bin/feednode-reset
 install -m 755 "$RELEASE/scripts/firstboot-network" /usr/local/bin/feednode-firstboot-network
 install -m 755 "$RELEASE/scripts/kiosk.sh" /usr/local/bin/feednode-kiosk
 install -m 755 "$RELEASE/scripts/boot-splash.sh" /usr/local/bin/feednode-boot-splash
+install -m 755 "$RELEASE/scripts/firmware-update.sh" /usr/local/bin/feednode-firmware-update
 install -m 644 services/feednode.service /etc/systemd/system/feednode.service
 install -m 644 services/feednode-network.service /etc/systemd/system/feednode-network.service
 install -m 644 services/feednode-splash.service /etc/systemd/system/feednode-splash.service
@@ -62,9 +62,10 @@ install -m 644 services/feednode-updater.service /etc/systemd/system/feednode-up
 install -m 644 services/feednode-updater.timer /etc/systemd/system/feednode-updater.timer
 
 cat >/etc/sudoers.d/feednode <<'SUDO'
-feednode ALL=(root) NOPASSWD: /usr/local/bin/feednode-network, /usr/local/bin/feednode-reset, /opt/feednode/current/scripts/update.sh *, /usr/bin/systemctl restart feednode-kiosk.service, /usr/bin/systemctl reboot, /usr/bin/systemd-run --unit=feednode-firmware-update --collect /opt/feednode/venv/bin/python /opt/feednode/current/updater/updater.py install
+feednode ALL=(root) NOPASSWD: /usr/local/bin/feednode-network, /usr/local/bin/feednode-reset, /usr/local/bin/feednode-firmware-update, /opt/feednode/current/scripts/update.sh *, /usr/bin/systemctl restart feednode-kiosk.service, /usr/bin/systemctl reboot
 SUDO
 chmod 440 /etc/sudoers.d/feednode
+visudo -cf /etc/sudoers.d/feednode >/dev/null
 
 if [ ! -f /etc/feednode/feednode.env ]; then
 cat >/etc/feednode/feednode.env <<'ENV'
@@ -83,7 +84,6 @@ else
   fi
 fi
 
-# Make HDMI boot look like an appliance instead of exposing the Linux console.
 CMDLINE_FILE=""
 if [ -f /boot/firmware/cmdline.txt ]; then
   CMDLINE_FILE=/boot/firmware/cmdline.txt
