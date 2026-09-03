@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import os
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -68,6 +69,32 @@ def _twitch_auth():
     if not access_token or not user_id or not client_id:
         return None
     return access_token, user_id, client_id
+
+
+def _active_connection():
+    try:
+        result = subprocess.run(
+            ["nmcli", "-g", "GENERAL.CONNECTION", "device", "show", "wlan0"],
+            text=True,
+            capture_output=True,
+            timeout=2,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def _lan_ip():
+    try:
+        result = subprocess.run(
+            ["hostname", "-I"], text=True, capture_output=True, timeout=2
+        )
+        for value in result.stdout.split():
+            if value and ":" not in value:
+                return value
+    except Exception:
+        pass
+    return ""
 
 
 def _refresh_stats_worker():
@@ -170,12 +197,22 @@ def load_fonts(cfg):
     title_font = pygame.font.Font(path, title_size)
     number_font = pygame.font.Font(path, number_size)
     build_font = pygame.font.Font(path, 11)
+    idle_brand = pygame.font.Font(path, 34)
+    idle_subtitle = pygame.font.Font(path, 18)
+    idle_status = pygame.font.Font(path, 24)
+    idle_body = pygame.font.Font(path, 17)
     title_font.set_bold(True)
     number_font.set_bold(True)
     build_font.set_bold(True)
+    idle_brand.set_bold(True)
+    idle_status.set_bold(True)
     fonts["stats_title"] = title_font
     fonts["stats_number"] = number_font
     fonts["build_footer"] = build_font
+    fonts["idle_brand"] = idle_brand
+    fonts["idle_subtitle"] = idle_subtitle
+    fonts["idle_status"] = idle_status
+    fonts["idle_body"] = idle_body
     return fonts
 
 
@@ -261,6 +298,40 @@ def draw_update_icon(surface, top_offset=0):
     pygame.draw.line(surface, green, (cx, shaft_top), (cx + radius // 3, cy - radius // 6), thickness)
 
 
+def draw_idle_state(surface, cfg, fonts):
+    style = cfg.get("style", {})
+    background = base.color(style.get("background"), "#080A0D")
+    text = base.color(style.get("text"), "#F4F7FA")
+    muted = base.color(style.get("muted"), "#8C98A6")
+    accent = base.color(style.get("activity_accent"), "#8C5CFF")
+    surface.fill(background)
+
+    active = _active_connection()
+    ip = _lan_ip()
+    if active == "feednode-setup":
+        status = "SETUP REQUIRED"
+        lines = ["Connect to FeedNode-Setup", "http://10.42.0.1:8787/setup"]
+    else:
+        status = "TWITCH NOT CONNECTED"
+        address = f"http://{ip}:8787/settings" if ip else "http://feednode.local:8787/settings"
+        lines = ["Open FeedNode settings", address]
+
+    brand = fonts["idle_brand"].render("FEEDNODE", True, text)
+    subtitle = fonts["idle_subtitle"].render("UNIFIED CHAT FEED", True, muted)
+    status_surf = fonts["idle_status"].render(status, True, accent)
+    body = [fonts["idle_body"].render(line, True, text if idx == 1 else muted) for idx, line in enumerate(lines)]
+
+    total_h = brand.get_height() + 8 + subtitle.get_height() + 42 + status_surf.get_height() + 20
+    total_h += sum(item.get_height() + 8 for item in body)
+    y = max(24, (surface.get_height() - total_h) // 2)
+    for item, gap in ((brand, 8), (subtitle, 42), (status_surf, 20)):
+        surface.blit(item, ((surface.get_width() - item.get_width()) // 2, y))
+        y += item.get_height() + gap
+    for item in body:
+        surface.blit(item, ((surface.get_width() - item.get_width()) // 2, y))
+        y += item.get_height() + 8
+
+
 def draw_item(screen, rect, item, cfg, fonts, anim_ctx):
     if item.get("kind") == "message":
         return _original_draw_item(screen, rect, item, cfg, fonts, anim_ctx)
@@ -273,6 +344,10 @@ def draw_item(screen, rect, item, cfg, fonts, anim_ctx):
 
 
 def render_layout(surface, cfg, feed, fonts, anim_ctx):
+    if not feed and not _twitch_auth():
+        draw_idle_state(surface, cfg, fonts)
+        return
+
     bar_height = stats_bar_height(cfg, fonts)
     footer_height = build_footer_height(cfg)
     w, h = surface.get_size()
@@ -312,6 +387,7 @@ def main():
     last_cfg = time.monotonic()
     last_stats_redraw = 0.0
     last_update_redraw = 0.0
+    last_idle_redraw = 0.0
     dirty = True
     animation_active = False
 
@@ -337,6 +413,10 @@ def main():
         if now - last_update_redraw >= UPDATE_REDRAW_SECONDS:
             dirty = True
             last_update_redraw = now
+
+        if not feed and not _twitch_auth() and now - last_idle_redraw >= 5.0:
+            dirty = True
+            last_idle_redraw = now
 
         while True:
             try:
