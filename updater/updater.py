@@ -16,6 +16,7 @@ REPO = os.getenv("FEEDNODE_GITHUB_REPO", "iamvinyl/FeedNode")
 API = f"https://api.github.com/repos/{REPO}/releases/latest"
 CURRENT_VERSION = Path(os.getenv("FEEDNODE_VERSION_FILE", "/opt/feednode/current/VERSION"))
 UPDATE_SCRIPT = Path(os.getenv("FEEDNODE_UPDATE_SCRIPT", "/opt/feednode/current/scripts/update.sh"))
+SPLASH_MODE = Path("/run/feednode-splash-mode")
 HARDWARE = "pi-zero-2w"
 
 
@@ -82,6 +83,30 @@ def _download_asset_bytes(asset: dict[str, str], timeout: float = 30.0) -> bytes
     raise RuntimeError("Release asset has no usable download URL")
 
 
+def _enter_update_display() -> bool:
+    """Hand tty1 from the native renderer to the lightweight update splash."""
+    if os.geteuid() != 0:
+        return False
+    try:
+        SPLASH_MODE.write_text("UPDATING\n")
+        subprocess.run(["/usr/bin/systemctl", "stop", "feednode-kiosk.service"], check=False)
+        subprocess.run(["/usr/bin/systemctl", "restart", "feednode-splash.service"], check=False)
+        return True
+    except Exception:
+        return False
+
+
+def _leave_update_display() -> None:
+    if os.geteuid() != 0:
+        return
+    try:
+        SPLASH_MODE.unlink(missing_ok=True)
+    except Exception:
+        pass
+    # Starting kiosk stops the conflicting splash service automatically.
+    subprocess.run(["/usr/bin/systemctl", "restart", "feednode-kiosk.service"], check=False)
+
+
 def check() -> dict:
     with httpx.Client(timeout=20, follow_redirects=True, headers=_headers()) as client:
         release = client.get(API)
@@ -128,13 +153,18 @@ def install(info: dict) -> None:
     if not asset:
         raise RuntimeError(f"Release asset missing: {asset_name}")
 
-    with tempfile.TemporaryDirectory(prefix="feednode-update-") as temp:
-        archive = Path(temp) / asset_name
-        archive.write_bytes(_download_asset_bytes(asset, timeout=120))
-        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-        if digest.lower() != manifest["sha256"].lower():
-            raise RuntimeError("Release checksum verification failed")
-        subprocess.run(["sudo", str(UPDATE_SCRIPT), str(archive), manifest["version"]], check=True)
+    display_taken = _enter_update_display()
+    try:
+        with tempfile.TemporaryDirectory(prefix="feednode-update-") as temp:
+            archive = Path(temp) / asset_name
+            archive.write_bytes(_download_asset_bytes(asset, timeout=120))
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+            if digest.lower() != manifest["sha256"].lower():
+                raise RuntimeError("Release checksum verification failed")
+            subprocess.run(["sudo", str(UPDATE_SCRIPT), str(archive), manifest["version"]], check=True)
+    finally:
+        if display_taken:
+            _leave_update_display()
 
 
 def public_info(info: dict) -> dict:
