@@ -9,16 +9,20 @@ VERSION="$(tr -d '[:space:]' < VERSION)"
 APP_ROOT=/opt/feednode
 RELEASE="$APP_ROOT/releases/$VERSION"
 STATE=/var/lib/feednode
+FIRMWARE_UPDATE="${FEEDNODE_FIRMWARE_UPDATE:-0}"
 
 printf '\nFeedNode %s replacement install\n' "$VERSION"
 
 systemctl stop feednode-kiosk.service >/dev/null 2>&1 || true
-systemctl stop feednode-splash.service >/dev/null 2>&1 || true
+if [ "$FIRMWARE_UPDATE" != "1" ]; then
+  systemctl stop feednode-splash.service >/dev/null 2>&1 || true
+fi
 systemctl stop feednode.service >/dev/null 2>&1 || true
 apt purge -y cage cog chromium chromium-browser openbox xserver-xorg xinit unclutter >/dev/null 2>&1 || true
 
-apt update
-apt install -y \
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y \
   python3-venv python3-pip \
   network-manager avahi-daemon curl \
   python3-pygame libegl-dev fonts-dejavu-core libpam-systemd
