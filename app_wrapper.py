@@ -45,6 +45,7 @@ def _start_detached_update():
             "sudo", "/usr/bin/systemd-run",
             "--unit=feednode-firmware-update",
             "--collect",
+            "--property=EnvironmentFile=/etc/feednode/feednode.env",
             str(PYTHON), str(UPDATER), "install",
         ],
         text=True,
