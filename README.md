@@ -118,18 +118,7 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-The installer sets up the FeedNode appliance, including:
-
-- application files under `/opt/feednode`
-- Python virtual environment
-- FastAPI/Uvicorn backend
-- native pygame/SDL2/KMSDRM HDMI renderer
-- NetworkManager helpers
-- setup access point support
-- boot and firmware-update splash screens
-- systemd services
-- Avahi/mDNS for `feednode.local`
-- persistent config, credentials, and cache directories
+The installer sets up FeedNode, including the web backend, native HDMI renderer, Wi-Fi setup mode, firmware updater, and `feednode.local` network name.
 
 When installation completes, reboot:
 
@@ -183,13 +172,7 @@ http://10.42.0.1:8787/setup
 
 Select your normal Wi-Fi network and enter its password.
 
-FeedNode will:
-
-1. stop the setup AP
-2. return `wlan0` to normal client mode
-3. rescan Wi-Fi
-4. connect to the selected network
-5. restore `FeedNode-Setup` if the connection fails
+FeedNode will stop the setup AP, return Wi-Fi to normal client mode, scan for your network, and connect. If the connection fails, `FeedNode-Setup` is restored so you can try again.
 
 Once FeedNode joins your normal Wi-Fi, reconnect your phone/computer to your normal network and open:
 
@@ -373,38 +356,20 @@ http://10.42.0.1:8787/setup
 
 After the first install, normal updates can be performed from the FeedNode Settings page.
 
-The updater:
-
-1. checks the latest GitHub release
-2. downloads the release package
-3. verifies its SHA-256 digest
-4. extracts the complete new release
-5. runs the **new release's packaged `install.sh`**
-6. verifies the installed version
-7. restarts FeedNode and returns to the HDMI feed
+The updater checks the latest GitHub release, verifies the downloaded package, installs the new build, and returns FeedNode to the HDMI feed.
 
 During an update the HDMI display shows the FeedNode `UPDATING` splash.
 
-Normal updates preserve persistent settings and credentials stored under `/var/lib/feednode`.
+Normal updates preserve your FeedNode settings and connected accounts.
 
 ## Manual source update
 
-For development or recovery, update the local repository with:
+If you prefer to update from the Pi terminal:
 
 ```bash
 cd ~/FeedNode
 git pull
-```
-
-Then reinstall the current checkout:
-
-```bash
 sudo ./install.sh
-```
-
-Reboot if needed:
-
-```bash
 sudo reboot
 ```
 
@@ -429,144 +394,6 @@ and open:
 
 ```text
 http://10.42.0.1:8787/setup
-```
-
-## Where FeedNode stores files
-
-Application releases:
-
-```text
-/opt/feednode/
-    current -> releases/<version>
-    releases/<version>/
-    venv/
-```
-
-Persistent user data:
-
-```text
-/var/lib/feednode/
-    config/
-    credentials/
-    cache/
-```
-
-Normal firmware updates preserve the persistent data directory.
-
-## Main services
-
-FeedNode is managed by systemd.
-
-Backend:
-
-```text
-feednode.service
-```
-
-Native HDMI display:
-
-```text
-feednode-kiosk.service
-```
-
-Setup/network fallback:
-
-```text
-feednode-network.service
-```
-
-Boot/update splash:
-
-```text
-feednode-splash.service
-```
-
-Firmware update support:
-
-```text
-feednode-updater.service
-feednode-updater.timer
-```
-
-## Basic diagnostics
-
-Check the backend:
-
-```bash
-systemctl status feednode.service --no-pager
-curl -s http://127.0.0.1:8787/api/status
-```
-
-Backend logs:
-
-```bash
-sudo journalctl -u feednode.service -n 100 --no-pager -l
-```
-
-Check the HDMI renderer:
-
-```bash
-systemctl status feednode-kiosk.service --no-pager
-```
-
-HDMI logs:
-
-```bash
-sudo journalctl -u feednode-kiosk.service -n 100 --no-pager -l
-```
-
-Check networking:
-
-```bash
-nmcli -g GENERAL.CONNECTION device show wlan0
-hostname -I
-```
-
-Check `feednode.local` / Avahi:
-
-```bash
-systemctl status avahi-daemon --no-pager
-```
-
-Check for failed services:
-
-```bash
-systemctl --failed
-```
-
-## If the web UI works by IP but not by `feednode.local`
-
-Use the current FeedNode IP address:
-
-```text
-http://<feednode-ip>:8787/settings
-```
-
-Then check Avahi:
-
-```bash
-sudo systemctl restart avahi-daemon
-systemctl status avahi-daemon --no-pager
-```
-
-## If HDMI looks blank
-
-First verify the backend:
-
-```bash
-curl -s http://127.0.0.1:8787/api/status
-```
-
-Then restart the renderer:
-
-```bash
-sudo systemctl restart feednode-kiosk.service
-```
-
-Check its logs:
-
-```bash
-sudo journalctl -u feednode-kiosk.service -n 100 --no-pager -l
 ```
 
 ## Current build
