@@ -46,7 +46,8 @@
     "stats_accent": "#F4F7FA"
   },
   "system": {
-    "max_feed_items": 100
+    "max_feed_items": 100,
+    "update_feed": "stable"
   },
   "platforms": {
     "twitch": {
