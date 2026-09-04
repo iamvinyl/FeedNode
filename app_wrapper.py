@@ -28,6 +28,14 @@ def configured_feed_limit():
     return max(MIN_FEED_ITEMS, min(MAX_FEED_ITEMS, value))
 
 
+def configured_update_feed():
+    try:
+        value = str((base.load_config().get("system") or {}).get("update_feed", "stable")).lower()
+    except Exception:
+        value = "stable"
+    return value if value in {"stable", "beta"} else "stable"
+
+
 async def publish_limited(item):
     item.setdefault("ts", int(time.time()))
     base.feed.append(item)
@@ -79,13 +87,17 @@ def _run_updater(action: str):
 async def _update_status(force=False):
     now = time.monotonic()
     cached = _update_cache.get("data")
-    if not force and cached is not None and now - float(_update_cache.get("checked", 0.0)) < UPDATE_CACHE_SECONDS:
+    channel = configured_update_feed()
+    channel_changed = cached is not None and cached.get("channel") != channel
+    if not force and not channel_changed and cached is not None and now - float(_update_cache.get("checked", 0.0)) < UPDATE_CACHE_SECONDS:
         return cached
 
     async with _update_lock:
         now = time.monotonic()
         cached = _update_cache.get("data")
-        if not force and cached is not None and now - float(_update_cache.get("checked", 0.0)) < UPDATE_CACHE_SECONDS:
+        channel = configured_update_feed()
+        channel_changed = cached is not None and cached.get("channel") != channel
+        if not force and not channel_changed and cached is not None and now - float(_update_cache.get("checked", 0.0)) < UPDATE_CACHE_SECONDS:
             return cached
         data = await asyncio.to_thread(_run_updater, "check")
         _update_cache["data"] = data
@@ -93,9 +105,9 @@ async def _update_status(force=False):
         return data
 
 
-def _start_detached_update():
+def _start_detached_update(action="install"):
     return subprocess.run(
-        ["sudo", str(FIRMWARE_LAUNCHER)],
+        ["sudo", str(FIRMWARE_LAUNCHER), action],
         text=True,
         capture_output=True,
         timeout=15,
@@ -129,7 +141,7 @@ async def update_install():
     if not check.get("update_available"):
         return {"ok": True, "message": "FeedNode is already up to date", **check}
 
-    result = await asyncio.to_thread(_start_detached_update)
+    result = await asyncio.to_thread(_start_detached_update, "install")
     if result.returncode:
         return JSONResponse(
             {"ok": False, "error": (result.stderr or result.stdout or "Unable to start firmware updater").strip()},
@@ -140,5 +152,33 @@ async def update_install():
         "installing": True,
         "installed": check.get("installed"),
         "available": check.get("available"),
+        "channel": check.get("channel", configured_update_feed()),
         "reboot_required": check.get("reboot_required", False),
+    }
+
+
+@app.post("/api/update/rollback-stable")
+async def rollback_stable():
+    check = await _update_status(force=True)
+    if not check.get("ok"):
+        return JSONResponse(check, status_code=503)
+    stable = check.get("stable_available")
+    if not stable:
+        return JSONResponse({"ok": False, "error": "Unable to determine latest stable release"}, status_code=503)
+    if check.get("installed") == stable:
+        return {"ok": True, "installing": False, "message": "Already on latest stable", **check}
+
+    result = await asyncio.to_thread(_start_detached_update, "rollback-stable")
+    if result.returncode:
+        return JSONResponse(
+            {"ok": False, "error": (result.stderr or result.stdout or "Unable to start stable rollback").strip()},
+            status_code=500,
+        )
+    return {
+        "ok": True,
+        "installing": True,
+        "installed": check.get("installed"),
+        "available": stable,
+        "channel": "stable",
+        "rollback": True,
     }
