@@ -14,8 +14,10 @@ from pathlib import Path
 import httpx
 
 REPO = os.getenv("FEEDNODE_GITHUB_REPO", "iamvinyl/FeedNode")
-API = f"https://api.github.com/repos/{REPO}/releases/latest"
+LATEST_API = f"https://api.github.com/repos/{REPO}/releases/latest"
+RELEASES_API = f"https://api.github.com/repos/{REPO}/releases?per_page=30"
 CURRENT_VERSION = Path(os.getenv("FEEDNODE_VERSION_FILE", "/opt/feednode/current/VERSION"))
+CONFIG_FILE = Path(os.getenv("FEEDNODE_CONFIG_FILE", "/var/lib/feednode/config/config.json"))
 SPLASH_MODE = Path("/run/feednode-splash-mode")
 HARDWARE = "pi-zero-2w"
 
@@ -25,6 +27,15 @@ def current_version() -> str:
         return CURRENT_VERSION.read_text().strip()
     except OSError:
         return "0.0.0"
+
+
+def update_feed() -> str:
+    try:
+        data = json.loads(CONFIG_FILE.read_text())
+        value = str((data.get("system") or {}).get("update_feed", "stable")).lower()
+    except Exception:
+        value = "stable"
+    return value if value in {"stable", "beta"} else "stable"
 
 
 def _version_tuple(value: str) -> tuple[int, ...]:
@@ -76,6 +87,33 @@ def _download_asset_bytes(asset: dict[str, str], timeout: float = 30.0) -> bytes
     raise RuntimeError("Release asset has no usable download URL")
 
 
+def _fetch_release(channel: str, stable_only: bool = False) -> dict:
+    with httpx.Client(timeout=20, follow_redirects=True, headers=_headers()) as client:
+        if channel == "stable" or stable_only:
+            response = client.get(LATEST_API)
+            if response.status_code in (401, 403, 404):
+                raise RuntimeError(
+                    "GitHub release check unavailable. If FeedNode is using a private repository, configure FEEDNODE_GITHUB_TOKEN."
+                )
+            response.raise_for_status()
+            return response.json()
+
+        response = client.get(RELEASES_API)
+        if response.status_code in (401, 403, 404):
+            raise RuntimeError(
+                "GitHub beta release check unavailable. If FeedNode is using a private repository, configure FEEDNODE_GITHUB_TOKEN."
+            )
+        response.raise_for_status()
+        releases = response.json()
+
+    for release in releases:
+        if release.get("draft"):
+            continue
+        if release.get("prerelease"):
+            return release
+    raise RuntimeError("No beta FeedNode release is currently published")
+
+
 def _enter_update_display() -> bool:
     if os.geteuid() != 0:
         return False
@@ -113,20 +151,13 @@ def _safe_extract_release(archive: Path, destination: Path) -> Path:
     return candidates[0]
 
 
-def check() -> dict:
-    with httpx.Client(timeout=20, follow_redirects=True, headers=_headers()) as client:
-        release = client.get(API)
-        if release.status_code in (401, 403, 404):
-            raise RuntimeError(
-                "GitHub release check unavailable. If FeedNode is using a private repository, configure FEEDNODE_GITHUB_TOKEN."
-            )
-        release.raise_for_status()
-        data = release.json()
-
+def release_info(channel: str | None = None, force_stable: bool = False) -> dict:
+    channel = "stable" if force_stable else (channel or update_feed())
+    data = _fetch_release(channel, stable_only=force_stable)
     assets = _asset_map(data)
     manifest_asset = assets.get("manifest.json")
     if not manifest_asset:
-        raise RuntimeError("Latest release has no manifest.json")
+        raise RuntimeError("Selected release has no manifest.json")
 
     try:
         manifest = json.loads(_download_asset_bytes(manifest_asset, timeout=20).decode("utf-8"))
@@ -140,10 +171,17 @@ def check() -> dict:
 
     installed = current_version()
     available = manifest["version"]
+    if channel == "beta":
+        update_available = available != installed
+    else:
+        update_available = _version_tuple(available) > _version_tuple(installed)
+
     return {
         "installed": installed,
         "available": available,
-        "update_available": _version_tuple(available) > _version_tuple(installed),
+        "update_available": update_available,
+        "channel": channel,
+        "is_prerelease": bool(data.get("prerelease")),
         "release_name": data.get("name") or data.get("tag_name"),
         "release_notes": data.get("body") or "",
         "release_url": data.get("html_url") or "",
@@ -152,9 +190,23 @@ def check() -> dict:
     }
 
 
-def install(info: dict) -> None:
+def check() -> dict:
+    info = release_info()
+    try:
+        stable = release_info(force_stable=True)
+        info["stable_available"] = stable["available"]
+        info["rollback_available"] = info["installed"] != stable["available"]
+    except Exception:
+        info["stable_available"] = ""
+        info["rollback_available"] = False
+    return info
+
+
+def install(info: dict, allow_downgrade: bool = False) -> None:
     if os.geteuid() != 0:
         raise RuntimeError("Firmware installation must run as root")
+    if not allow_downgrade and not info.get("update_available"):
+        return
 
     manifest = info["manifest"]
     asset_name = manifest["asset"]
@@ -201,6 +253,10 @@ def public_info(info: dict) -> dict:
         "installed": info["installed"],
         "available": info["available"],
         "update_available": info["update_available"],
+        "channel": info.get("channel", update_feed()),
+        "is_prerelease": bool(info.get("is_prerelease", False)),
+        "stable_available": info.get("stable_available", ""),
+        "rollback_available": bool(info.get("rollback_available", False)),
         "release_name": info["release_name"],
         "release_notes": info["release_notes"],
         "release_url": info.get("release_url", ""),
@@ -210,9 +266,18 @@ def public_info(info: dict) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", nargs="?", choices=("check", "install"), default="check")
+    parser.add_argument("action", nargs="?", choices=("check", "install", "rollback-stable"), default="check")
     args = parser.parse_args()
     try:
+        if args.action == "rollback-stable":
+            info = release_info(force_stable=True)
+            if info["installed"] == info["available"]:
+                print(json.dumps({"ok": True, "installed": info["installed"], "message": "Already on latest stable"}))
+                return 0
+            install(info, allow_downgrade=True)
+            print(json.dumps({"ok": True, "installed": info["available"], "message": "Rolled back to stable"}))
+            return 0
+
         info = check()
         if args.action == "install":
             if not info["update_available"]:
@@ -224,7 +289,7 @@ def main() -> int:
         print(json.dumps({"ok": True, **public_info(info)}))
         return 0
     except Exception as exc:
-        print(json.dumps({"ok": False, "installed": current_version(), "error": str(exc)}))
+        print(json.dumps({"ok": False, "installed": current_version(), "channel": update_feed(), "error": str(exc)}))
         return 1
 
 
