@@ -47,7 +47,6 @@ class SurfaceCache:
 surfaces = SurfaceCache()
 animations = SurfaceCache(MAX_ANIMATIONS)
 client = httpx.Client(timeout=3.0)
-
 feed_queue = Queue()
 
 class AnimatedEmote:
@@ -80,13 +79,11 @@ def websocket_worker():
         except Exception:
             time.sleep(1.0)
 
-
 def color(value, fallback):
     try:
         return pygame.Color(value)
     except Exception:
         return pygame.Color(fallback)
-
 
 def wait_for_backend():
     while True:
@@ -98,7 +95,6 @@ def wait_for_backend():
             pass
         time.sleep(0.25)
 
-
 def get_json(path, fallback):
     try:
         r = client.get(BASE_URL + path)
@@ -106,7 +102,6 @@ def get_json(path, fallback):
         return r.json()
     except Exception:
         return fallback
-
 
 def emote_id(fragment):
     return str(((fragment or {}).get("emote") or {}).get("id") or "")
@@ -192,7 +187,6 @@ def fetch_surface(url, size):
     except Exception:
         return None
 
-
 def load_fonts(cfg):
     style = cfg.get("style", {})
     family = style.get("font_family", "DejaVu Sans")
@@ -205,7 +199,6 @@ def load_fonts(cfg):
     user.set_bold(True)
     event_title.set_bold(True)
     return {"message": message, "user": user, "event": event, "meta": meta, "event_title": event_title}
-
 
 def wrap_text(font, text, max_width):
     words = str(text or "").split()
@@ -221,7 +214,6 @@ def wrap_text(font, text, max_width):
             current = word
     lines.append(current)
     return lines
-
 
 def draw_message_body(screen, x, y, width, item, cfg, fonts, anim_ctx):
     style = cfg.get("style", {})
@@ -255,8 +247,11 @@ def draw_message_body(screen, x, y, width, item, cfg, fonts, anim_ctx):
                 cursor_x += ew + 4
                 continue
         elif ftype == "gif" and frag.get("gif") and gif_url(frag):
-            media_size = max(line_h, int(style.get("message_size", 24) * 1.25))
+            media_size = max(line_h, int(style.get("gif_size", 72)))
             surf = None
+            if cursor_x > x:
+                cursor_x = x
+                cursor_y += line_h + 3
             if style.get("animated_emotes", True) and anim_ctx["used"] < anim_ctx["limit"]:
                 animated = fetch_animated_gif(frag, media_size)
                 if animated is not None:
@@ -267,11 +262,9 @@ def draw_message_body(screen, x, y, width, item, cfg, fonts, anim_ctx):
                 surf = fetch_surface(gif_url(frag), media_size)
             if surf:
                 ew, eh = surf.get_size()
-                if cursor_x + ew > x + width and cursor_x > x:
-                    cursor_x = x
-                    cursor_y += line_h + 3
-                screen.blit(surf, (cursor_x, cursor_y + max(0, (line_h - eh)//2)))
-                cursor_x += ew + 4
+                screen.blit(surf, (cursor_x, cursor_y))
+                cursor_x = x
+                cursor_y += eh + 3
                 continue
         chunks = ftext.split(" ")
         for idx, chunk in enumerate(chunks):
@@ -287,7 +280,6 @@ def draw_message_body(screen, x, y, width, item, cfg, fonts, anim_ctx):
             cursor_x += tw
     return cursor_y + line_h
 
-
 def measure_item(item, cfg, fonts, width):
     style = cfg.get("style", {})
     spacing = int(style.get("spacing", 12))
@@ -298,9 +290,14 @@ def measure_item(item, cfg, fonts, width):
     avatar = int(style.get("avatar_size", 42)) if style.get("show_avatars", True) else 0
     body_w = max(60, width - avatar - (spacing if avatar else 0) - spacing * 2)
     lines = wrap_text(fonts["message"], item.get("text", ""), body_w)
-    content_h = fonts["user"].get_linesize() + 4 + max(1, len(lines)) * fonts["message"].get_linesize()
+    message_h = max(1, len(lines)) * fonts["message"].get_linesize()
+    fragments = item.get("fragments") or []
+    gif_count = sum(1 for frag in fragments if frag.get("type") == "gif" and frag.get("gif"))
+    if gif_count:
+        gif_h = max(fonts["message"].get_linesize(), int(style.get("gif_size", 72)))
+        message_h = max(message_h, gif_count * (gif_h + 3))
+    content_h = fonts["user"].get_linesize() + 4 + message_h
     return max(avatar, content_h) + spacing * 2
-
 
 def draw_item(screen, rect, item, cfg, fonts, anim_ctx):
     style = cfg.get("style", {})
@@ -312,7 +309,6 @@ def draw_item(screen, rect, item, cfg, fonts, anim_ctx):
     activity = color(style.get("activity_accent"), "#8C5CFF")
     radius = int(style.get("radius", 10))
     pygame.draw.rect(screen, panel, rect, border_radius=radius)
-
     x = rect.x + spacing
     y = rect.y + spacing
     if item.get("kind") != "message":
@@ -326,7 +322,6 @@ def draw_item(screen, rect, item, cfg, fonts, anim_ctx):
             screen.blit(s, (x, y))
             y += fonts["event"].get_linesize()
         return
-
     avatar_size = int(style.get("avatar_size", 42))
     if style.get("show_avatars", True) and item.get("avatar"):
         av = fetch_surface(item.get("avatar"), avatar_size)
@@ -334,7 +329,6 @@ def draw_item(screen, rect, item, cfg, fonts, anim_ctx):
             aw, ah = av.get_size()
             screen.blit(av, (x + (avatar_size-aw)//2, y + (avatar_size-ah)//2))
         x += avatar_size + spacing
-
     user_color = accent
     if style.get("use_platform_colors", True) and item.get("color"):
         user_color = color(item.get("color"), style.get("accent", "#39E6D0"))
@@ -346,7 +340,6 @@ def draw_item(screen, rect, item, cfg, fonts, anim_ctx):
         screen.blit(meta, (mx, y + max(0, name.get_height()-meta.get_height())))
     y += fonts["user"].get_linesize() + 3
     draw_message_body(screen, x, y, rect.right - spacing - x, item, cfg, fonts, anim_ctx)
-
 
 def draw_column(screen, rect, items, cfg, fonts, anim_ctx):
     style = cfg.get("style", {})
@@ -371,7 +364,6 @@ def draw_column(screen, rect, items, cfg, fonts, anim_ctx):
         y += h + spacing
     screen.set_clip(old_clip)
 
-
 def render_layout(surface, cfg, feed, fonts, anim_ctx):
     style = cfg.get("style", {})
     layout = cfg.get("layout", {})
@@ -381,7 +373,6 @@ def render_layout(surface, cfg, feed, fonts, anim_ctx):
     orientation = layout.get("orientation", "portrait")
     order = layout.get("order", "activity-first")
     ratio = max(10, min(90, int(layout.get("split_ratio", 35)))) / 100.0
-
     if mode == "combined":
         draw_column(surface, pygame.Rect(0, 0, w, h), list(feed), cfg, fonts, anim_ctx)
     else:
@@ -404,13 +395,7 @@ def render(screen, cfg, feed, fonts):
     style = cfg.get("style", {})
     sw, sh = screen.get_size()
     native_landscape = sw >= sh
-    anim_ctx = {
-        "now_ms": int(time.monotonic() * 1000),
-        "used": 0,
-        "limit": max(0, min(30, int(style.get("max_animated_emotes", DEFAULT_MAX_ANIMATED_ON_SCREEN)))),
-        "active": False,
-    }
-
+    anim_ctx = {"now_ms": int(time.monotonic() * 1000),"used": 0,"limit": max(0, min(30, int(style.get("max_animated_emotes", DEFAULT_MAX_ANIMATED_ON_SCREEN)))),"active": False}
     if native_landscape:
         if orientation == "landscape":
             render_layout(screen, cfg, feed, fonts, anim_ctx)
@@ -433,7 +418,6 @@ def render(screen, cfg, feed, fonts):
             screen.blit(rotated, (0, 0))
         else:
             render_layout(screen, cfg, feed, fonts, anim_ctx)
-
     pygame.display.flip()
     return anim_ctx["active"]
 
@@ -444,7 +428,6 @@ def main():
     pygame.mouse.set_visible(False)
     screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN | pygame.DOUBLEBUF)
     pygame.display.set_caption("FeedNode Native Display")
-
     cfg = get_json("/api/config", {})
     fonts = load_fonts(cfg)
     feed = get_json("/api/feed", [])
@@ -453,13 +436,11 @@ def main():
     last_cfg = time.monotonic()
     dirty = True
     animation_active = False
-
     clock = pygame.time.Clock()
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return
-
         now = time.monotonic()
         if now - last_cfg >= CONFIG_INTERVAL:
             new_cfg = get_json("/api/config", cfg)
@@ -468,7 +449,6 @@ def main():
                 fonts = load_fonts(cfg)
                 dirty = True
             last_cfg = now
-
         while True:
             try:
                 item = feed_queue.get_nowait()
@@ -478,11 +458,9 @@ def main():
             if len(feed) > 100:
                 del feed[:-100]
             dirty = True
-
         if dirty or animation_active:
             animation_active = render(screen, cfg, feed, fonts)
             dirty = False
-
         clock.tick(max(1, int(1.0 / FRAME_INTERVAL)))
 
 if __name__ == "__main__":
