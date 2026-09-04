@@ -231,6 +231,13 @@ async def twitch_profile(user_id: str, access_token: str):
     return {}
 
 
+def format_sub_tier(tier: Any, is_prime: bool = False):
+    if is_prime:
+        return "Prime"
+    value = str(tier or "").strip()
+    return {"1000": "Tier 1", "2000": "Tier 2", "3000": "Tier 3"}.get(value, f"Tier {value}" if value else "Subscription")
+
+
 def eventsub_spec(sub_type: str, user_id: str):
     if sub_type in {"channel.chat.message", "channel.chat.notification"}:
         return "1", {"broadcaster_user_id": user_id, "user_id": user_id}
@@ -287,24 +294,36 @@ async def handle_twitch_notification(message: dict[str, Any], access_token: str)
         })
     elif sub_type == "channel.chat.notification":
         notice = event.get("notice_type", "activity")
+        text = event.get("system_message") or (event.get("message") or {}).get("text", "")
+        if notice == "sub":
+            sub = event.get("sub") or {}
+            text = f"subscribed · {format_sub_tier(sub.get('sub_tier'), bool(sub.get('is_prime')))}"
+        elif notice == "resub":
+            resub = event.get("resub") or {}
+            tier = format_sub_tier(resub.get("sub_tier"), bool(resub.get("is_prime")))
+            months = resub.get("cumulative_months") or resub.get("duration_months")
+            text = f"resubscribed · {tier}" + (f" · {months} months" if months else "")
         await publish({
             "kind": "activity",
             "platform": "Twitch",
             "event": notice,
             "user": event.get("chatter_user_name") or event.get("chatter_user_login") or "Twitch",
-            "text": event.get("system_message") or (event.get("message") or {}).get("text", ""),
+            "text": text,
             "color": event.get("color") or "",
         })
     elif sub_type == "channel.follow":
         await publish({"kind":"activity","platform":"Twitch","event":"follow","user":event.get("user_name") or event.get("user_login") or "Viewer","text":"followed"})
     elif sub_type == "channel.subscribe":
-        await publish({"kind":"activity","platform":"Twitch","event":"subscription","user":event.get("user_name") or event.get("user_login") or "Viewer","text":f"subscribed · tier {event.get('tier','')}".strip()})
+        await publish({"kind":"activity","platform":"Twitch","event":"subscription","user":event.get("user_name") or event.get("user_login") or "Viewer","text":f"subscribed · {format_sub_tier(event.get('tier'))}"})
     elif sub_type == "channel.subscription.gift":
         who = "Anonymous" if event.get("is_anonymous") else (event.get("user_name") or event.get("user_login") or "Viewer")
-        await publish({"kind":"activity","platform":"Twitch","event":"gift_subs","user":who,"text":f"gifted {event.get('total',1)} sub(s)"})
+        tier = format_sub_tier(event.get("tier"))
+        await publish({"kind":"activity","platform":"Twitch","event":"gift_subs","user":who,"text":f"gifted {event.get('total',1)} sub(s) · {tier}"})
     elif sub_type == "channel.subscription.message":
         msg = (event.get("message") or {}).get("text", "")
-        await publish({"kind":"activity","platform":"Twitch","event":"resub","user":event.get("user_name") or event.get("user_login") or "Viewer","text":msg or f"resubscribed · {event.get('cumulative_months',1)} months"})
+        tier = format_sub_tier(event.get("tier"))
+        months = event.get("cumulative_months", 1)
+        await publish({"kind":"activity","platform":"Twitch","event":"resub","user":event.get("user_name") or event.get("user_login") or "Viewer","text":msg or f"resubscribed · {tier} · {months} months"})
     elif sub_type == "channel.cheer":
         who = "Anonymous" if event.get("is_anonymous") else (event.get("user_name") or event.get("user_login") or "Viewer")
         await publish({"kind":"activity","platform":"Twitch","event":"bits","user":who,"text":f"cheered {event.get('bits',0)} bits"})
