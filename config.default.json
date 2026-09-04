@@ -45,6 +45,9 @@
     "stats_color": "#8C98A6",
     "stats_accent": "#F4F7FA"
   },
+  "system": {
+    "max_feed_items": 100
+  },
   "platforms": {
     "twitch": {
       "enabled": true
