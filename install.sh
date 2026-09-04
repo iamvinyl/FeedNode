@@ -24,7 +24,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y \
   python3-venv python3-pip \
-  network-manager avahi-daemon curl \
+  network-manager avahi-daemon curl nginx \
   python3-pygame libegl-dev fonts-dejavu-core libpam-systemd
 
 systemctl enable --now NetworkManager
@@ -64,6 +64,15 @@ install -m 644 services/feednode-splash.service /etc/systemd/system/feednode-spl
 install -m 644 services/feednode-kiosk.service /etc/systemd/system/feednode-kiosk.service
 install -m 644 services/feednode-updater.service /etc/systemd/system/feednode-updater.service
 install -m 644 services/feednode-updater.timer /etc/systemd/system/feednode-updater.timer
+
+# Public web entry point. FeedNode continues to listen internally on 8787;
+# nginx exposes the friendly port-80 URLs and forwards WebSocket traffic.
+install -m 644 "$RELEASE/config/feednode-nginx.conf" /etc/nginx/sites-available/feednode
+rm -f /etc/nginx/sites-enabled/default
+ln -sfn /etc/nginx/sites-available/feednode /etc/nginx/sites-enabled/feednode
+nginx -t
+systemctl enable nginx
+systemctl restart nginx
 
 cat >/etc/sudoers.d/feednode <<'SUDO'
 feednode ALL=(root) NOPASSWD: /usr/local/bin/feednode-network, /usr/local/bin/feednode-reset, /usr/local/bin/feednode-firmware-update, /opt/feednode/current/scripts/update.sh *, /usr/bin/systemctl restart feednode-kiosk.service, /usr/bin/systemctl reboot
@@ -123,7 +132,9 @@ hostnamectl set-hostname feednode
 systemctl enable --now avahi-daemon
 
 printf '\nFeedNode %s installed.\n' "$VERSION"
-printf 'Settings: http://feednode.local:8787/settings\n'
+printf 'Settings: http://feednode.local\n'
+printf 'Display:  http://feednode.local/display\n'
+printf 'Setup AP: http://10.42.0.1/setup\n'
 printf 'HDMI: FeedNode loading splash -> native pygame/SDL2 KMSDRM renderer\n'
 printf 'Existing Wi-Fi, layout settings, and Twitch credentials were preserved.\n'
 printf 'If Twitch was already authorized, EventSub will start automatically.\n'
