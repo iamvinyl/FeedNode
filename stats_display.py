@@ -29,21 +29,9 @@ _original_render_layout = base.render_layout
 _original_draw_item = base.draw_item
 
 _stats_lock = threading.Lock()
-_stats = {
-    "viewers": "--",
-    "followers": "--",
-    "subscribers": "--",
-    "updated": 0.0,
-    "refreshing": False,
-}
-
+_stats = {"viewers": "--", "followers": "--", "subscribers": "--", "updated": 0.0, "refreshing": False}
 _update_lock = threading.Lock()
-_update_status = {
-    "available": False,
-    "version": "",
-    "updated": 0.0,
-    "refreshing": False,
-}
+_update_status = {"available": False, "version": "", "updated": 0.0, "refreshing": False}
 
 
 def _read_json(path):
@@ -73,12 +61,7 @@ def _twitch_auth():
 
 def _active_connection():
     try:
-        result = subprocess.run(
-            ["nmcli", "-g", "GENERAL.CONNECTION", "device", "show", "wlan0"],
-            text=True,
-            capture_output=True,
-            timeout=2,
-        )
+        result = subprocess.run(["nmcli", "-g", "GENERAL.CONNECTION", "device", "show", "wlan0"], text=True, capture_output=True, timeout=2)
         return result.stdout.strip() if result.returncode == 0 else ""
     except Exception:
         return ""
@@ -86,9 +69,7 @@ def _active_connection():
 
 def _lan_ip():
     try:
-        result = subprocess.run(
-            ["hostname", "-I"], text=True, capture_output=True, timeout=2
-        )
+        result = subprocess.run(["hostname", "-I"], text=True, capture_output=True, timeout=2)
         for value in result.stdout.split():
             if value and ":" not in value:
                 return value
@@ -103,30 +84,16 @@ def _refresh_stats_worker():
         auth = _twitch_auth()
         if auth:
             access_token, user_id, client_id = auth
-            headers = {
-                "Authorization": f"Bearer {access_token}",
-                "Client-Id": client_id,
-            }
+            headers = {"Authorization": f"Bearer {access_token}", "Client-Id": client_id}
             with httpx.Client(timeout=8.0, headers=headers) as client:
-                streams = client.get(
-                    "https://api.twitch.tv/helix/streams",
-                    params={"user_id": user_id},
-                )
+                streams = client.get("https://api.twitch.tv/helix/streams", params={"user_id": user_id})
                 if streams.status_code == 200:
                     data = streams.json().get("data") or []
                     values["viewers"] = int(data[0].get("viewer_count", 0)) if data else 0
-
-                followers = client.get(
-                    "https://api.twitch.tv/helix/channels/followers",
-                    params={"broadcaster_id": user_id, "first": 1},
-                )
+                followers = client.get("https://api.twitch.tv/helix/channels/followers", params={"broadcaster_id": user_id, "first": 1})
                 if followers.status_code == 200:
                     values["followers"] = int(followers.json().get("total", 0))
-
-                subscribers = client.get(
-                    "https://api.twitch.tv/helix/subscriptions",
-                    params={"broadcaster_id": user_id, "first": 1},
-                )
+                subscribers = client.get("https://api.twitch.tv/helix/subscriptions", params={"broadcaster_id": user_id, "first": 1})
                 if subscribers.status_code == 200:
                     values["subscribers"] = int(subscribers.json().get("total", 0))
     except Exception:
@@ -145,11 +112,7 @@ def get_stats():
         if stale and not _stats.get("refreshing"):
             _stats["refreshing"] = True
             threading.Thread(target=_refresh_stats_worker, daemon=True).start()
-        return {
-            "viewers": _stats["viewers"],
-            "followers": _stats["followers"],
-            "subscribers": _stats["subscribers"],
-        }
+        return {"viewers": _stats["viewers"], "followers": _stats["followers"], "subscribers": _stats["subscribers"]}
 
 
 def _refresh_update_worker():
@@ -166,10 +129,7 @@ def _refresh_update_worker():
         pass
     finally:
         with _update_lock:
-            _update_status["available"] = available
-            _update_status["version"] = version
-            _update_status["updated"] = time.monotonic()
-            _update_status["refreshing"] = False
+            _update_status.update({"available": available, "version": version, "updated": time.monotonic(), "refreshing": False})
 
 
 def get_update_available():
@@ -206,13 +166,7 @@ def load_fonts(cfg):
     build_font.set_bold(True)
     idle_brand.set_bold(True)
     idle_status.set_bold(True)
-    fonts["stats_title"] = title_font
-    fonts["stats_number"] = number_font
-    fonts["build_footer"] = build_font
-    fonts["idle_brand"] = idle_brand
-    fonts["idle_subtitle"] = idle_subtitle
-    fonts["idle_status"] = idle_status
-    fonts["idle_body"] = idle_body
+    fonts.update({"stats_title": title_font, "stats_number": number_font, "build_footer": build_font, "idle_brand": idle_brand, "idle_subtitle": idle_subtitle, "idle_status": idle_status, "idle_body": idle_body})
     return fonts
 
 
@@ -236,22 +190,13 @@ def build_footer_height(cfg):
 def draw_stats_bar(surface, cfg, fonts, height):
     style = cfg.get("style", {})
     panel = base.color(style.get("stats_bar_panel", style.get("panel")), "#10141A")
-    stats_color_value = style.get("stats_color") or style.get("muted")
-    stats_accent_value = style.get("stats_accent") or style.get("text")
-    stats_color = base.color(stats_color_value, "#8C98A6")
-    stats_accent = base.color(stats_accent_value, "#F4F7FA")
+    stats_color = base.color(style.get("stats_color") or style.get("muted"), "#8C98A6")
+    stats_accent = base.color(style.get("stats_accent") or style.get("text"), "#F4F7FA")
     stats = get_stats()
-
     pygame.draw.rect(surface, panel, pygame.Rect(0, 0, surface.get_width(), height))
     pygame.draw.line(surface, stats_color, (0, height - 1), (surface.get_width(), height - 1), 1)
-
-    entries = (
-        ("VIEWERS", stats["viewers"]),
-        ("FOLLOWERS", stats["followers"]),
-        ("SUBS", stats["subscribers"]),
-    )
+    entries = (("VIEWERS", stats["viewers"]), ("FOLLOWERS", stats["followers"]), ("SUBS", stats["subscribers"]))
     column_width = surface.get_width() / 3.0
-
     for idx, (label, value) in enumerate(entries):
         label_surf = fonts["stats_title"].render(label, True, stats_color)
         value_surf = fonts["stats_number"].render(_format_count(value), True, stats_accent)
@@ -260,10 +205,8 @@ def draw_stats_bar(surface, cfg, fonts, height):
         center_x = int((idx + 0.5) * column_width)
         x = int(center_x - total_width / 2)
         center_y = height // 2
-        label_y = center_y - label_surf.get_height() // 2
-        value_y = center_y - value_surf.get_height() // 2
-        surface.blit(label_surf, (x, label_y))
-        surface.blit(value_surf, (x + label_surf.get_width() + gap, value_y))
+        surface.blit(label_surf, (x, center_y - label_surf.get_height() // 2))
+        surface.blit(value_surf, (x + label_surf.get_width() + gap, center_y - value_surf.get_height() // 2))
 
 
 def draw_build_footer(surface, cfg, fonts, height):
@@ -275,8 +218,7 @@ def draw_build_footer(surface, cfg, fonts, height):
     y = surface.get_height() - height
     pygame.draw.rect(surface, panel, pygame.Rect(0, y, surface.get_width(), height))
     text = fonts["build_footer"].render(f"FEEDNODE · BUILD v{installed_build()}", True, muted)
-    x = max(10, surface.get_width() - text.get_width() - 12)
-    surface.blit(text, (x, y + (height - text.get_height()) // 2))
+    surface.blit(text, (max(10, surface.get_width() - text.get_width() - 12), y + (height - text.get_height()) // 2))
 
 
 def draw_update_icon(surface, top_offset=0):
@@ -289,7 +231,6 @@ def draw_update_icon(surface, top_offset=0):
     cy = top_offset + margin + radius
     green = base.color(UPDATE_GREEN, UPDATE_GREEN)
     thickness = max(2, radius // 5)
-
     pygame.draw.circle(surface, green, (cx, cy), radius, thickness)
     shaft_top = cy - radius // 2
     shaft_bottom = cy + radius // 3
@@ -305,24 +246,20 @@ def draw_idle_state(surface, cfg, fonts):
     muted = base.color(style.get("muted"), "#8C98A6")
     accent = base.color(style.get("activity_accent"), "#8C5CFF")
     surface.fill(background)
-
     active = _active_connection()
     ip = _lan_ip()
     if active == "feednode-setup":
         status = "SETUP REQUIRED"
-        lines = ["Connect to FeedNode-Setup", "http://10.42.0.1:8787/setup"]
+        lines = ["Connect to FeedNode-Setup", "http://10.42.0.1/setup"]
     else:
         status = "TWITCH NOT CONNECTED"
-        address = f"http://{ip}:8787/settings" if ip else "http://feednode.local:8787/settings"
+        address = f"http://{ip}/settings" if ip else "http://feednode.local"
         lines = ["Open FeedNode settings", address]
-
     brand = fonts["idle_brand"].render("FEEDNODE", True, text)
     subtitle = fonts["idle_subtitle"].render("UNIFIED CHAT FEED", True, muted)
     status_surf = fonts["idle_status"].render(status, True, accent)
     body = [fonts["idle_body"].render(line, True, text if idx == 1 else muted) for idx, line in enumerate(lines)]
-
-    total_h = brand.get_height() + 8 + subtitle.get_height() + 42 + status_surf.get_height() + 20
-    total_h += sum(item.get_height() + 8 for item in body)
+    total_h = brand.get_height() + 8 + subtitle.get_height() + 42 + status_surf.get_height() + 20 + sum(item.get_height() + 8 for item in body)
     y = max(24, (surface.get_height() - total_h) // 2)
     for item, gap in ((brand, 8), (subtitle, 42), (status_surf, 20)):
         surface.blit(item, ((surface.get_width() - item.get_width()) // 2, y))
@@ -332,13 +269,26 @@ def draw_idle_state(surface, cfg, fonts):
         y += item.get_height() + 8
 
 
+def _event_panel_key(item):
+    platform = str(item.get("platform") or "system").strip().lower()
+    if platform == "twitch":
+        return "twitch_event_panel"
+    if platform == "rumble":
+        return "rumble_event_panel"
+    if platform in {"youtube", "you tube"}:
+        return "youtube_event_panel"
+    if platform == "kick":
+        return "kick_event_panel"
+    return "system_event_panel"
+
+
 def draw_item(screen, rect, item, cfg, fonts, anim_ctx):
     if item.get("kind") == "message":
         return _original_draw_item(screen, rect, item, cfg, fonts, anim_ctx)
-
     event_cfg = dict(cfg)
     event_style = dict(cfg.get("style", {}))
-    event_style["panel"] = event_style.get("event_panel", event_style.get("panel", "#10141A"))
+    fallback = event_style.get("event_panel", event_style.get("panel", "#10141A"))
+    event_style["panel"] = event_style.get(_event_panel_key(item), fallback)
     event_cfg["style"] = event_style
     return _original_draw_item(screen, rect, item, event_cfg, fonts, anim_ctx)
 
@@ -347,7 +297,6 @@ def render_layout(surface, cfg, feed, fonts, anim_ctx):
     if not feed and not _twitch_auth():
         draw_idle_state(surface, cfg, fonts)
         return
-
     bar_height = stats_bar_height(cfg, fonts)
     footer_height = build_footer_height(cfg)
     w, h = surface.get_size()
@@ -355,15 +304,12 @@ def render_layout(surface, cfg, feed, fonts, anim_ctx):
         bar_height = min(bar_height, max(0, h - 80))
     if footer_height > 0:
         footer_height = min(footer_height, max(0, h - bar_height - 60))
-
     content_height = h - bar_height - footer_height
     if content_height > 0 and (bar_height > 0 or footer_height > 0):
-        content_rect = pygame.Rect(0, bar_height, w, content_height)
-        content_surface = surface.subsurface(content_rect)
+        content_surface = surface.subsurface(pygame.Rect(0, bar_height, w, content_height))
         _original_render_layout(content_surface, cfg, feed, fonts, anim_ctx)
     else:
         _original_render_layout(surface, cfg, feed, fonts, anim_ctx)
-
     if bar_height > 0:
         draw_stats_bar(surface, cfg, fonts, bar_height)
     if footer_height > 0:
@@ -378,25 +324,21 @@ def main():
     pygame.mouse.set_visible(False)
     screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN | pygame.DOUBLEBUF)
     pygame.display.set_caption("FeedNode Native Display")
-
     cfg = base.get_json("/api/config", {})
     fonts = load_fonts(cfg)
     feed = base.get_json("/api/feed", [])
-    thread = threading.Thread(target=base.websocket_worker, daemon=True)
-    thread.start()
+    threading.Thread(target=base.websocket_worker, daemon=True).start()
     last_cfg = time.monotonic()
     last_stats_redraw = 0.0
     last_update_redraw = 0.0
     last_idle_redraw = 0.0
     dirty = True
     animation_active = False
-
     clock = pygame.time.Clock()
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return
-
         now = time.monotonic()
         if now - last_cfg >= base.CONFIG_INTERVAL:
             new_cfg = base.get_json("/api/config", cfg)
@@ -405,19 +347,15 @@ def main():
                 fonts = load_fonts(cfg)
                 dirty = True
             last_cfg = now
-
         if cfg.get("style", {}).get("show_stats_bar", False) and now - last_stats_redraw >= STATS_REDRAW_SECONDS:
             dirty = True
             last_stats_redraw = now
-
         if now - last_update_redraw >= UPDATE_REDRAW_SECONDS:
             dirty = True
             last_update_redraw = now
-
         if not feed and not _twitch_auth() and now - last_idle_redraw >= 5.0:
             dirty = True
             last_idle_redraw = now
-
         while True:
             try:
                 item = base.feed_queue.get_nowait()
@@ -427,11 +365,9 @@ def main():
             if len(feed) > 100:
                 del feed[:-100]
             dirty = True
-
         if dirty or animation_active:
             animation_active = base.render(screen, cfg, feed, fonts)
             dirty = False
-
         clock.tick(max(1, int(1.0 / base.FRAME_INTERVAL)))
 
 
