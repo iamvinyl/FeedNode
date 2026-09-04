@@ -111,6 +111,10 @@ def get_json(path, fallback):
 def emote_id(fragment):
     return str(((fragment or {}).get("emote") or {}).get("id") or "")
 
+def gif_url(fragment):
+    value = str(((fragment or {}).get("gif") or {}).get("url") or "").strip()
+    return value if value.startswith("https://") else None
+
 def image_url_for_emote(fragment, animated=False):
     eid = emote_id(fragment)
     if not eid:
@@ -126,16 +130,15 @@ def scale_surface(surf, size):
     target = (max(1, int(w * scale)), max(1, int(h * scale)))
     return pygame.transform.smoothscale(surf, target)
 
-def fetch_animated_emote(fragment, size):
-    eid = emote_id(fragment)
-    if not eid:
+def fetch_animated_url(url, size, cache_key=None):
+    if not url:
         return None
-    key = (eid, int(size))
+    key = (cache_key or url, int(size))
     cached = animations.get(key)
     if cached is not None:
         return cached
     try:
-        r = client.get(image_url_for_emote(fragment, animated=True))
+        r = client.get(url)
         r.raise_for_status()
         image = Image.open(io.BytesIO(r.content))
         frames, durations = [], []
@@ -156,6 +159,19 @@ def fetch_animated_emote(fragment, size):
         return animated
     except Exception:
         return None
+
+def fetch_animated_emote(fragment, size):
+    eid = emote_id(fragment)
+    if not eid:
+        return None
+    return fetch_animated_url(image_url_for_emote(fragment, animated=True), size, cache_key="emote:" + eid)
+
+def fetch_animated_gif(fragment, size):
+    url = gif_url(fragment)
+    if not url:
+        return None
+    gid = str(((fragment or {}).get("gif") or {}).get("gif_id") or url)
+    return fetch_animated_url(url, size, cache_key="gif:" + gid)
 
 def fetch_surface(url, size):
     if not url:
@@ -220,16 +236,35 @@ def draw_message_body(screen, x, y, width, item, cfg, fonts, anim_ctx):
         ftype = frag.get("type", "text")
         ftext = frag.get("text", "")
         if ftype == "emote" and frag.get("emote"):
-            emote_size = max(line_h, int(style.get("message_size", 24) * 1.25))
+            media_size = max(line_h, int(style.get("message_size", 24) * 1.25))
             surf = None
             if style.get("animated_emotes", True) and anim_ctx["used"] < anim_ctx["limit"]:
-                animated = fetch_animated_emote(frag, emote_size)
+                animated = fetch_animated_emote(frag, media_size)
                 if animated is not None:
                     surf = animated.frame_at(anim_ctx["now_ms"])
                     anim_ctx["used"] += 1
                     anim_ctx["active"] = True
             if surf is None:
-                surf = fetch_surface(image_url_for_emote(frag, animated=False), emote_size)
+                surf = fetch_surface(image_url_for_emote(frag, animated=False), media_size)
+            if surf:
+                ew, eh = surf.get_size()
+                if cursor_x + ew > x + width and cursor_x > x:
+                    cursor_x = x
+                    cursor_y += line_h + 3
+                screen.blit(surf, (cursor_x, cursor_y + max(0, (line_h - eh)//2)))
+                cursor_x += ew + 4
+                continue
+        elif ftype == "gif" and frag.get("gif") and gif_url(frag):
+            media_size = max(line_h, int(style.get("message_size", 24) * 1.25))
+            surf = None
+            if style.get("animated_emotes", True) and anim_ctx["used"] < anim_ctx["limit"]:
+                animated = fetch_animated_gif(frag, media_size)
+                if animated is not None:
+                    surf = animated.frame_at(anim_ctx["now_ms"])
+                    anim_ctx["used"] += 1
+                    anim_ctx["active"] = True
+            if surf is None:
+                surf = fetch_surface(gif_url(frag), media_size)
             if surf:
                 ew, eh = surf.get_size()
                 if cursor_x + ew > x + width and cursor_x > x:
