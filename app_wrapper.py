@@ -52,8 +52,6 @@ async def publish_limited(item):
         base.clients.discard(ws)
 
 
-# app.py resolves its module-level publish() at request/event time, so replacing
-# it here applies the configurable history depth to Twitch, system and demo items.
 base.publish = publish_limited
 
 
@@ -167,6 +165,12 @@ async def rollback_stable():
         return JSONResponse({"ok": False, "error": "Unable to determine latest stable release"}, status_code=503)
     if check.get("installed") == stable:
         return {"ok": True, "installing": False, "message": "Already on latest stable", **check}
+
+    config = base.load_config()
+    config.setdefault("system", {})["update_feed"] = "stable"
+    base.save_config(config)
+    _update_cache["data"] = None
+    _update_cache["checked"] = 0.0
 
     result = await asyncio.to_thread(_start_detached_update, "rollback-stable")
     if result.returncode:
