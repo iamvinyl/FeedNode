@@ -13,8 +13,40 @@ UPDATER = Path(__file__).resolve().parent / "updater" / "updater.py"
 PYTHON = Path("/opt/feednode/venv/bin/python")
 FIRMWARE_LAUNCHER = Path("/usr/local/bin/feednode-firmware-update")
 UPDATE_CACHE_SECONDS = 300.0
+DEFAULT_FEED_ITEMS = 100
+MIN_FEED_ITEMS = 10
+MAX_FEED_ITEMS = 250
 _update_cache = {"data": None, "checked": 0.0}
 _update_lock = asyncio.Lock()
+
+
+def configured_feed_limit():
+    try:
+        value = int((base.load_config().get("system") or {}).get("max_feed_items", DEFAULT_FEED_ITEMS))
+    except Exception:
+        value = DEFAULT_FEED_ITEMS
+    return max(MIN_FEED_ITEMS, min(MAX_FEED_ITEMS, value))
+
+
+async def publish_limited(item):
+    item.setdefault("ts", int(time.time()))
+    base.feed.append(item)
+    limit = configured_feed_limit()
+    if len(base.feed) > limit:
+        del base.feed[:-limit]
+    dead = []
+    for ws in base.clients:
+        try:
+            await ws.send_json(item)
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        base.clients.discard(ws)
+
+
+# app.py resolves its module-level publish() at request/event time, so replacing
+# it here applies the configurable history depth to Twitch, system and demo items.
+base.publish = publish_limited
 
 
 async def _run_system_action(*args):
