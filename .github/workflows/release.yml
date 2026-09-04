@@ -26,6 +26,11 @@ jobs:
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$VERSION" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build package
         shell: bash
@@ -60,9 +65,14 @@ jobs:
         shell: bash
         run: |
           VERSION="${{ steps.version.outputs.version }}"
+          EXTRA_ARGS=()
+          if [[ "${{ steps.version.outputs.prerelease }}" == "true" ]]; then
+            EXTRA_ARGS+=(--prerelease)
+          fi
           gh release create "v${VERSION}" \
             "release/FeedNode-v${VERSION}.tar.gz" \
             "release/FeedNode-v${VERSION}.tar.gz.sha256" \
             "release/manifest.json" \
             --title "FeedNode v${VERSION}" \
-            --generate-notes
+            --generate-notes \
+            "${EXTRA_ARGS[@]}"
