@@ -27,6 +27,7 @@
     "username_size": 21,
     "event_size": 20,
     "avatar_size": 42,
+    "gif_size": 72,
     "radius": 10,
     "spacing": 12,
     "show_platform": true,
