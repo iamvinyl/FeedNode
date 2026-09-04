@@ -1,10 +1,10 @@
-# FeedNode v0.3.9 — DIY Raspberry Pi Installer
+# FeedNode v0.4.0 — DIY Raspberry Pi Installer
 
 FeedNode is a Raspberry Pi unified chat and activity-feed appliance built for a dedicated HDMI display. It combines streaming-platform chat, activity events, native HDMI rendering, and a lightweight web settings interface into one always-on device.
 
 This guide is written for someone building a FeedNode from scratch.
 
-Version 0.3.9 uses a native pygame/SDL2 renderer through Raspberry Pi KMSDRM. No Chromium kiosk, X11 desktop, browser window, or desktop environment is required for the HDMI output.
+Version 0.4.0 uses a native pygame/SDL2 renderer through Raspberry Pi KMSDRM. No Chromium kiosk, X11 desktop, browser window, or desktop environment is required for HDMI output.
 
 ## What you need
 
@@ -106,7 +106,7 @@ cat VERSION
 For this guide it should report:
 
 ```text
-0.3.9
+0.4.0
 ```
 
 ## 5. Install FeedNode
@@ -118,7 +118,7 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-The installer sets up FeedNode, including the web backend, native HDMI renderer, Wi-Fi setup mode, firmware updater, and `feednode.local` network name.
+The installer sets up FeedNode, including the web backend, native HDMI renderer, Wi-Fi setup mode, firmware updater, `feednode.local` network name, and a local web proxy so normal users do not need to type a port number.
 
 When installation completes, reboot:
 
@@ -130,11 +130,13 @@ sudo reboot
 
 FeedNode normally starts automatically after reboot.
 
-If the Pi already has working Wi-Fi, open the settings page from another device:
+If the Pi already has working Wi-Fi, open:
 
 ```text
-http://feednode.local:8787/settings
+http://feednode.local
 ```
+
+That address opens the FeedNode Settings page.
 
 If `.local` name resolution does not work, get the Pi's IP address from the terminal:
 
@@ -142,16 +144,16 @@ If `.local` name resolution does not work, get the Pi's IP address from the term
 hostname -I
 ```
 
-Then open:
+Then open the IP directly:
 
 ```text
-http://<feednode-ip>:8787/settings
+http://<feednode-ip>
 ```
 
 Example:
 
 ```text
-http://192.168.1.175:8787/settings
+http://192.168.1.175
 ```
 
 ## 7. Wi-Fi setup without preconfigured Wi-Fi
@@ -167,7 +169,7 @@ Connect your phone, tablet, or computer to `FeedNode-Setup`.
 Then open:
 
 ```text
-http://10.42.0.1:8787/setup
+http://10.42.0.1/setup
 ```
 
 Select your normal Wi-Fi network and enter its password.
@@ -177,7 +179,7 @@ FeedNode will stop the setup AP, return Wi-Fi to normal client mode, scan for yo
 Once FeedNode joins your normal Wi-Fi, reconnect your phone/computer to your normal network and open:
 
 ```text
-http://feednode.local:8787/settings
+http://feednode.local
 ```
 
 or use the FeedNode IP address.
@@ -221,7 +223,7 @@ hostname -I
 Open:
 
 ```text
-http://feednode.local:8787/settings
+http://feednode.local
 ```
 
 Go to the **Accounts** section and choose **Connect Twitch**.
@@ -242,20 +244,11 @@ channel:read:redemptions
 
 Twitch is currently the implemented live connector.
 
-FeedNode can display Twitch chat and supported activity events with:
-
-- usernames
-- Twitch username colors
-- avatars
-- badges
-- static emotes
-- animated emotes
-- activity cards
-- optional viewer/follower/subscriber stats
+FeedNode can display Twitch chat and supported activity events with usernames, Twitch username colors, avatars, badges, static and animated emotes, activity cards, and optional viewer/follower/subscriber stats.
 
 ## Future platform connectors
 
-The v0.3.9 UI and config already include future connector slots for:
+The UI and config include future connector slots for:
 
 - Rumble chat + activity
 - YouTube chat + activity
@@ -286,19 +279,7 @@ Use the **Layout** section in Settings to change orientation, combined/split mod
 
 ## 10. Customize appearance
 
-The Settings page includes controls for:
-
-- background color
-- message panel color
-- text and muted-text colors
-- username accent
-- message text size
-- username size
-- event text size
-- avatar size
-- top statistics-bar styling
-- animated emote limit
-- optional HDMI build footer
+The Settings page includes controls for background color, message panel color, text colors, username accent, message/user/event sizes, avatar size, top-bar styling, animated emote limits, and the optional HDMI build footer.
 
 ### Per-platform activity colors
 
@@ -309,8 +290,6 @@ Activity/event cards can have separate panel colors for:
 - Rumble
 - YouTube
 - Kick
-
-This lets configuration/style-update events look different from Twitch events and leaves room for future platform-specific styling.
 
 ### Restore appearance defaults
 
@@ -328,29 +307,41 @@ Once activity or chat arrives, the normal unified feed display takes over.
 
 ## 12. Web interface addresses
 
-Settings:
+Main Settings page:
 
 ```text
-http://feednode.local:8787/settings
+http://feednode.local
 ```
 
-Direct IP:
+The explicit Settings path also works:
 
 ```text
-http://<feednode-ip>:8787/settings
+http://feednode.local/settings
 ```
 
-Browser preview of the feed:
+Browser display preview:
 
 ```text
-http://feednode.local:8787/
+http://feednode.local/display
+```
+
+The Settings page includes an **Open Display** link that launches the browser display in a new tab.
+
+Direct IP access uses the same paths without a port number:
+
+```text
+http://<feednode-ip>
+http://<feednode-ip>/settings
+http://<feednode-ip>/display
 ```
 
 Setup page while connected to `FeedNode-Setup`:
 
 ```text
-http://10.42.0.1:8787/setup
+http://10.42.0.1/setup
 ```
+
+FeedNode still runs its application backend internally on port 8787, but end users normally do not need to use that port directly.
 
 ## 13. Firmware updates
 
@@ -375,12 +366,7 @@ sudo reboot
 
 ## Factory reset
 
-Factory reset clears:
-
-- saved FeedNode configuration
-- streaming account credentials
-- cache
-- saved Wi-Fi client connections
+Factory reset clears saved FeedNode configuration, streaming account credentials, cache, and saved Wi-Fi client connections.
 
 It then restores the default config and returns the device to `FeedNode-Setup` mode.
 
@@ -393,12 +379,12 @@ FeedNode-Setup
 and open:
 
 ```text
-http://10.42.0.1:8787/setup
+http://10.42.0.1/setup
 ```
 
 ## Current build
 
 ```text
-FeedNode v0.3.9
+FeedNode v0.4.0
 Unified Chat Feed
 ```
