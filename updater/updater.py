@@ -43,6 +43,25 @@ def _version_tuple(value: str) -> tuple[int, ...]:
     return tuple(int(part) for part in value.split("."))
 
 
+def _is_prerelease_version(value: str) -> bool:
+    return "-" in value.strip().lstrip("v")
+
+
+def _is_update_available(installed: str, available: str, channel: str) -> bool:
+    installed_base = _version_tuple(installed)
+    available_base = _version_tuple(available)
+    if available_base > installed_base:
+        return True
+    if available_base < installed_base:
+        return False
+    if channel != "beta":
+        return False
+    # Never replace a stable build with a prerelease of the same base version.
+    if not _is_prerelease_version(installed) and _is_prerelease_version(available):
+        return False
+    return available != installed
+
+
 def _headers(accept: str = "application/vnd.github+json") -> dict[str, str]:
     headers = {
         "Accept": accept,
@@ -107,11 +126,9 @@ def _fetch_release(channel: str, stable_only: bool = False) -> dict:
         releases = response.json()
 
     for release in releases:
-        if release.get("draft"):
-            continue
-        if release.get("prerelease"):
+        if not release.get("draft") and release.get("prerelease"):
             return release
-    raise RuntimeError("No beta FeedNode release is currently published")
+    raise LookupError("No beta FeedNode release is currently published")
 
 
 def _enter_update_display() -> bool:
@@ -171,15 +188,10 @@ def release_info(channel: str | None = None, force_stable: bool = False) -> dict
 
     installed = current_version()
     available = manifest["version"]
-    if channel == "beta":
-        update_available = available != installed
-    else:
-        update_available = _version_tuple(available) > _version_tuple(installed)
-
     return {
         "installed": installed,
         "available": available,
-        "update_available": update_available,
+        "update_available": _is_update_available(installed, available, channel),
         "channel": channel,
         "is_prerelease": bool(data.get("prerelease")),
         "release_name": data.get("name") or data.get("tag_name"),
@@ -191,7 +203,25 @@ def release_info(channel: str | None = None, force_stable: bool = False) -> dict
 
 
 def check() -> dict:
-    info = release_info()
+    channel = update_feed()
+    try:
+        info = release_info(channel=channel)
+    except LookupError:
+        if channel != "beta":
+            raise
+        info = {
+            "installed": current_version(),
+            "available": current_version(),
+            "update_available": False,
+            "channel": "beta",
+            "is_prerelease": False,
+            "release_name": "No beta release published",
+            "release_notes": "No beta FeedNode release is currently published.",
+            "release_url": "",
+            "manifest": {},
+            "assets": {},
+        }
+
     try:
         stable = release_info(force_stable=True)
         info["stable_available"] = stable["available"]
