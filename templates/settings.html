@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>FeedNode Settings</title>
-  <link rel="stylesheet" href="/static/admin.css?v=0.4.7-beta.1">
+  <link rel="stylesheet" href="/static/admin.css?v=0.4.7-beta.2">
 </head>
 <body>
 <main class="wrap wide">
@@ -25,23 +25,32 @@
   </details></section>
 
   <section class="card collapsible-card" id="topbar-style"><details open>
-    <summary><span>Top Bar Style</span><span class="summary-state">Choose exactly which metrics are shown</span></summary>
+    <summary><span>Top Bar Style</span><span class="summary-state">Combined or per-platform metrics</span></summary>
     <div class="section-body">
-      <div class="checks">
-        <label><input id="show_stats_bar" type="checkbox"> Show top stats bar</label>
-        <label><input id="show_stats_viewers" type="checkbox"> Viewers</label>
-        <label><input id="show_stats_followers" type="checkbox"> Twitch followers</label>
-        <label><input id="show_stats_subscribers" type="checkbox"> Twitch subs</label>
-        <label><input id="show_stats_likes" type="checkbox"> Rumble likes</label>
-        <label><input id="combine_viewers" type="checkbox"> Combine Twitch + Rumble viewers</label>
-      </div>
       <div class="grid">
+        <label>Stats Mode<select id="stats_mode"><option value="combined">Combined</option><option value="platform">Separate by Platform</option></select></label>
         <label>Top Bar Background<input id="stats_bar_panel" type="color"></label>
         <label>Stat Title Size<input id="stats_title_size" type="number" min="8" max="48" value="14"></label>
         <label>Stat Number Size<input id="stats_number_size" type="number" min="10" max="64" value="20"></label>
         <label>Stats Color<input id="stats_color" type="color"></label>
         <label>Stats Accent<input id="stats_accent" type="color"></label>
       </div>
+      <div class="checks"><label><input id="show_stats_bar" type="checkbox"> Show top stats bar</label></div>
+
+      <div class="subsection-title">Combined metrics</div>
+      <div class="stats-config-list">
+        <div class="stats-config-row combined-row"><div class="stats-config-name">Combined</div><label><input id="combined_stats_viewers" type="checkbox"> Viewers</label><label><input id="combined_stats_followers" type="checkbox"> Followers</label><label><input id="combined_stats_subscribers" type="checkbox"> Subscribers</label><label><input id="combined_stats_likes" type="checkbox"> Likes</label></div>
+      </div>
+      <p class="muted stats-help">Combined followers = Twitch followers + Rumble followers + YouTube channel subscribers. Combined subscribers = Twitch subs + Rumble subscribers + YouTube members. Combined likes = Rumble + YouTube likes.</p>
+
+      <div class="subsection-title">Standalone platform metrics</div>
+      <div class="stats-config-list">
+        <div class="stats-config-row twitch-row"><div class="stats-config-name">Twitch</div><label><input id="twitch_stats_viewers" type="checkbox"> Viewers</label><label><input id="twitch_stats_followers" type="checkbox"> Followers</label><label><input id="twitch_stats_subscribers" type="checkbox"> Subs</label></div>
+        <div class="stats-config-row rumble-row"><div class="stats-config-name">Rumble</div><label><input id="rumble_stats_viewers" type="checkbox"> Viewers</label><label><input id="rumble_stats_followers" type="checkbox"> Followers</label><label><input id="rumble_stats_subscribers" type="checkbox"> Subscribers</label><label><input id="rumble_stats_likes" type="checkbox"> Likes</label></div>
+        <div class="stats-config-row youtube-row"><div class="stats-config-name">YouTube</div><label><input id="youtube_stats_viewers" type="checkbox"> Viewers</label><label><input id="youtube_stats_subscribers" type="checkbox"> Subscribers</label><label><input id="youtube_stats_members" type="checkbox"> Members</label><label><input id="youtube_stats_likes" type="checkbox"> Likes</label></div>
+        <div class="stats-config-row kick-row"><div class="stats-config-name">Kick</div><label><input id="kick_stats_viewers" type="checkbox"> Viewers</label><label><input id="kick_stats_followers" type="checkbox"> Followers</label><label><input id="kick_stats_subscribers" type="checkbox"> Subscribers</label><label><input id="kick_stats_likes" type="checkbox"> Likes</label></div>
+      </div>
+      <p class="muted stats-help">YouTube and Kick controls are ready for their future connectors. Until connected, those values display as unavailable rather than zero.</p>
       <button onclick="saveConfig()">Save Top Bar Style</button>
     </div>
   </details></section>
@@ -91,14 +100,12 @@
     <div class="section-body">
       <div class="account"><div><strong>Twitch</strong><p id="twStatus" class="muted">Checking…</p></div><button onclick="connectTwitch()">Connect Twitch</button><button class="secondary" onclick="disconnectTwitch()">Disconnect</button></div>
       <div id="twitchCode" class="codebox" hidden></div>
-
       <div class="account"><div><strong>Rumble</strong><p id="rumbleStatus" class="muted">Checking…</p></div><div class="buttons"><button class="secondary" onclick="testRumble()">Test</button><button class="secondary" onclick="disconnectRumble()">Disconnect</button></div></div>
       <div class="account-setup">
         <div class="grid"><label>Rumble Live Stream API URL<input id="rumbleApiUrl" type="url" inputmode="url" autocomplete="off" placeholder="Paste your Rumble Live Stream API URL"></label></div>
         <p class="muted">The API URL is stored only on FeedNode and is not shown again after saving. On mobile, open Rumble's Live Stream API page, copy the URL, then paste it here.</p>
         <div class="buttons"><a class="button secondary" href="https://rumble.com/account/livestream-api" target="_blank" rel="noopener">Open Rumble API Page</a><button onclick="connectRumble()">Save &amp; Test</button></div>
       </div>
-
       <div class="account"><div><strong>YouTube</strong><p class="muted">Future chat and activity connector slot.</p></div></div>
       <div class="account"><div><strong>Kick</strong><p class="muted">Future chat and activity connector slot.</p></div></div>
     </div>
@@ -127,6 +134,6 @@ const updateFeedEl=document.getElementById('update_feed');
 updateFeedEl.value=(window.FEEDNODE_CONFIG.system&&window.FEEDNODE_CONFIG.system.update_feed)||'stable';
 async function saveSystemSettings(){const el=document.getElementById('max_feed_items');const value=Math.max(10,Math.min(250,parseInt(el.value||'100',10)));el.value=value;window.FEEDNODE_CONFIG.system=window.FEEDNODE_CONFIG.system||{};window.FEEDNODE_CONFIG.system.max_feed_items=value;window.FEEDNODE_CONFIG.system.update_feed=updateFeedEl.value==='beta'?'beta':'stable';await saveConfig();await checkFirmware(true);}
 </script>
-<script src="/static/settings.js?v=0.4.7-beta.1"></script>
+<script src="/static/settings.js?v=0.4.7-beta.2"></script>
 </body>
 </html>
