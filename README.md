@@ -6,6 +6,15 @@ This guide is written for someone building a FeedNode from scratch.
 
 FeedNode uses a native pygame/SDL2 renderer through Raspberry Pi KMSDRM. No Chromium kiosk, X11 desktop, browser window, or desktop environment is required for HDMI output.
 
+## Release branches
+
+FeedNode uses two development paths:
+
+- **`stable`** — public DIY installs and normal production use.
+- **`main`** — active development and beta work.
+
+New users should always install from the `stable` branch. Beta builds are opt-in later from **System & Recovery → Update Feed → Beta**.
+
 ## What you need
 
 ### Recommended hardware
@@ -87,28 +96,23 @@ Verify:
 git --version
 ```
 
-## 4. Download the latest stable FeedNode release
+## 4. Clone FeedNode Stable
 
-Clone the repository, then automatically switch to the newest stable release tag. This intentionally ignores beta/prerelease builds on the development branch.
+Clone the dedicated Stable branch into your home folder:
 
 ```bash
 cd ~
-git clone https://github.com/iamvinyl/FeedNode.git
+git clone --branch stable --single-branch https://github.com/iamvinyl/FeedNode.git
 cd FeedNode
-git fetch --tags
-STABLE_TAG="$(git tag --list 'v*' --sort=-v:refname | grep -Ev -- '-(alpha|beta|rc)[.-]?' | head -n 1)"
-[ -n "$STABLE_TAG" ] || { echo "No stable FeedNode release found"; exit 1; }
-git checkout "$STABLE_TAG"
 ```
 
-Check the selected build:
+Check the included build version:
 
 ```bash
 cat VERSION
-git describe --tags --exact-match
 ```
 
-The version should be a normal stable version such as `0.4.5`, not a version containing `-beta`, `-alpha`, or `-rc`.
+The version should be a normal stable version without `-beta`, `-alpha`, or `-rc`.
 
 ## 5. Install FeedNode
 
@@ -338,19 +342,17 @@ During an update the HDMI display shows the FeedNode `UPDATING` splash.
 
 ## Manual stable source update
 
-If you prefer to update from the Pi terminal, fetch the tags and explicitly select the latest stable release rather than pulling the development branch:
+If you prefer to update from the Pi terminal:
 
 ```bash
 cd ~/FeedNode
-git fetch --tags
-STABLE_TAG="$(git tag --list 'v*' --sort=-v:refname | grep -Ev -- '-(alpha|beta|rc)[.-]?' | head -n 1)"
-[ -n "$STABLE_TAG" ] || { echo "No stable FeedNode release found"; exit 1; }
-git checkout "$STABLE_TAG"
+git checkout stable
+git pull origin stable
 sudo ./install.sh
 sudo reboot
 ```
 
-Developers and testers who intentionally want prerelease builds should use FeedNode's **Beta** update feed instead of the DIY stable-install instructions.
+Developers and testers who intentionally want development code can use `main`, but public/production installs should remain on `stable`.
 
 ## Factory reset
 
@@ -377,4 +379,4 @@ FeedNode uses two release channels:
 - **Stable** — normal releases intended for everyday use.
 - **Beta** — prerelease builds for testing new features and changes.
 
-A fresh DIY installation should always start on the latest Stable release. Beta is opt-in from the FeedNode Settings page.
+A fresh DIY installation should always start from the `stable` branch. Beta is opt-in from the FeedNode Settings page.
