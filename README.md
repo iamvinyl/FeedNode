@@ -1,10 +1,10 @@
-# FeedNode v0.4.0 — DIY Raspberry Pi Installer
+# FeedNode — DIY Raspberry Pi Installer
 
 FeedNode is a Raspberry Pi unified chat and activity-feed appliance built for a dedicated HDMI display. It combines streaming-platform chat, activity events, native HDMI rendering, and a lightweight web settings interface into one always-on device.
 
 This guide is written for someone building a FeedNode from scratch.
 
-Version 0.4.0 uses a native pygame/SDL2 renderer through Raspberry Pi KMSDRM. No Chromium kiosk, X11 desktop, browser window, or desktop environment is required for HDMI output.
+FeedNode uses a native pygame/SDL2 renderer through Raspberry Pi KMSDRM. No Chromium kiosk, X11 desktop, browser window, or desktop environment is required for HDMI output.
 
 ## What you need
 
@@ -87,27 +87,28 @@ Verify:
 git --version
 ```
 
-## 4. Clone FeedNode
+## 4. Download the latest stable FeedNode release
 
-Clone the repository into your home folder:
+Clone the repository, then automatically switch to the newest stable release tag. This intentionally ignores beta/prerelease builds on the development branch.
 
 ```bash
 cd ~
 git clone https://github.com/iamvinyl/FeedNode.git
 cd FeedNode
+git fetch --tags
+STABLE_TAG="$(git tag --list 'v*' --sort=-v:refname | grep -Ev -- '-(alpha|beta|rc)[.-]?' | head -n 1)"
+[ -n "$STABLE_TAG" ] || { echo "No stable FeedNode release found"; exit 1; }
+git checkout "$STABLE_TAG"
 ```
 
-Check the included build version:
+Check the selected build:
 
 ```bash
 cat VERSION
+git describe --tags --exact-match
 ```
 
-For this guide it should report:
-
-```text
-0.4.0
-```
+The version should be a normal stable version such as `0.4.5`, not a version containing `-beta`, `-alpha`, or `-rc`.
 
 ## 5. Install FeedNode
 
@@ -218,7 +219,7 @@ Show the current IP address:
 hostname -I
 ```
 
-## 8. Connect Twitch
+## 8. Connect streaming accounts
 
 Open:
 
@@ -226,9 +227,9 @@ Open:
 http://feednode.local
 ```
 
-Go to the **Accounts** section and choose **Connect Twitch**.
+Use the **Accounts** section to connect supported streaming platforms.
 
-FeedNode uses Twitch Device Code OAuth, so the settings page will provide a Twitch activation address and code.
+For Twitch, choose **Connect Twitch**. FeedNode uses Twitch Device Code OAuth, so the settings page will provide a Twitch activation address and code.
 
 Current requested Twitch permissions are:
 
@@ -242,19 +243,7 @@ moderator:read:followers
 channel:read:redemptions
 ```
 
-Twitch is currently the implemented live connector.
-
-FeedNode can display Twitch chat and supported activity events with usernames, Twitch username colors, avatars, badges, static and animated emotes, activity cards, and optional viewer/follower/subscriber stats.
-
-## Future platform connectors
-
-The UI and config include future connector slots for:
-
-- Rumble chat + activity
-- YouTube chat + activity
-- Kick chat + activity
-
-These are placeholders for future connector builds and are not yet equivalent to the Twitch integration.
+Additional platform connectors may be available in newer FeedNode releases. Stable users only receive features that have been promoted from beta into a normal release.
 
 ## 9. Configure the HDMI layout
 
@@ -279,17 +268,11 @@ Use the **Layout** section in Settings to change orientation, combined/split mod
 
 ## 10. Customize appearance
 
-The Settings page includes controls for background color, message panel color, text colors, username accent, message/user/event sizes, avatar size, top-bar styling, animated emote limits, and the optional HDMI build footer.
+The Settings page includes controls for background color, message panel color, text colors, username accent, message/user/event sizes, avatar size, top-bar styling, animated media limits, and the optional HDMI build footer.
 
 ### Per-platform activity colors
 
-Activity/event cards can have separate panel colors for:
-
-- FeedNode / System
-- Twitch
-- Rumble
-- YouTube
-- Kick
+Activity/event cards can have separate styling for supported platforms and FeedNode system events.
 
 ### Restore appearance defaults
 
@@ -301,7 +284,7 @@ It does not reset orientation, combined/split mode, order, or split ratio.
 
 If FeedNode is waiting for first-time Wi-Fi setup, the HDMI display shows setup instructions instead of appearing dead.
 
-If FeedNode is on the LAN but Twitch is not connected, the HDMI display shows an account/setup-required state and the settings address.
+If FeedNode is on the LAN but no streaming account is connected, the HDMI display shows an account/setup-required state and the settings address.
 
 Once activity or chat arrives, the normal unified feed display takes over.
 
@@ -347,22 +330,27 @@ FeedNode still runs its application backend internally on port 8787, but end use
 
 After the first install, normal updates can be performed from the FeedNode Settings page.
 
-The updater checks the latest GitHub release, verifies the downloaded package, installs the new build, and returns FeedNode to the HDMI feed.
+FeedNode defaults to the **Stable** update feed. Beta builds are only offered after explicitly selecting the Beta feed in System & Recovery.
+
+The updater verifies the downloaded release package before installation and preserves your FeedNode settings and connected accounts.
 
 During an update the HDMI display shows the FeedNode `UPDATING` splash.
 
-Normal updates preserve your FeedNode settings and connected accounts.
+## Manual stable source update
 
-## Manual source update
-
-If you prefer to update from the Pi terminal:
+If you prefer to update from the Pi terminal, fetch the tags and explicitly select the latest stable release rather than pulling the development branch:
 
 ```bash
 cd ~/FeedNode
-git pull
+git fetch --tags
+STABLE_TAG="$(git tag --list 'v*' --sort=-v:refname | grep -Ev -- '-(alpha|beta|rc)[.-]?' | head -n 1)"
+[ -n "$STABLE_TAG" ] || { echo "No stable FeedNode release found"; exit 1; }
+git checkout "$STABLE_TAG"
 sudo ./install.sh
 sudo reboot
 ```
+
+Developers and testers who intentionally want prerelease builds should use FeedNode's **Beta** update feed instead of the DIY stable-install instructions.
 
 ## Factory reset
 
@@ -382,9 +370,11 @@ and open:
 http://10.42.0.1/setup
 ```
 
-## Current build
+## Release channels
 
-```text
-FeedNode v0.4.0
-Unified Chat Feed
-```
+FeedNode uses two release channels:
+
+- **Stable** — normal releases intended for everyday use.
+- **Beta** — prerelease builds for testing new features and changes.
+
+A fresh DIY installation should always start on the latest Stable release. Beta is opt-in from the FeedNode Settings page.
