@@ -19,27 +19,28 @@ base = stats.base
 
 TRIGGER_USERS = {"iamvinyl", "chphead"}
 TRIGGER_TEXT = "feednode-test"
-MATRIX_SECONDS = 3.0
-REVEAL_SECONDS = 2.0
+MATRIX_REVEAL_SECONDS = 30.0
 TROLL_HOLD_SECONDS = 15.0
 MATRIX_FPS = 20
 MATRIX_CHARS = "01ABCDEFGHIJKLMNOPQRSTUVWXYZ#$%&*+-<>[]{}"
 
 TROLL_FACE = [
-    "                 __________",
-    "             .-''          ``-.",
-    "           .'    _..---.._     `.",
-    "          /    .'  _   _  `.     \\",
-    "         ;    /   (_) (_)   \\      ;",
-    "         |   |  ,-.     ,-. |      |",
-    "         |   | /   \\___/   \\|      |",
-    "         ;    \\  .-.___.-.  /      ;",
-    "          \\    `._\\_____/_.`      /",
-    "           `.      `---`        .'",
-    "             `-._            _.-'",
-    "                  `--------`",
-    "",
-    "             FEEDNODE BETA TEST",
+    "░░▄█▀░░░░░░░░░░░░░░░░░░░░░▀▀█▄░",
+    "▄█▀░░░░░░░░░░░░░░░░░░░░░░░░░░▀█",
+    "█▀░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▀",
+    "▀░░░░░░░░░░░░░░░░░▄▄▄▄▄░░░░░░░░░",
+    "░░░░░░░░░▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀░░░░",
+    "░░░░░░░▄▄▄▄▄▄▄▄▄░░░░░░▄▄▄▄▄▄▄▄▄░",
+    "░░░░░░██▀▀▀▀▀▀███░░░▄░▀██▀▀▀▀▀██",
+    "░░░░░░██░██░░░███░░██░░██░░██░██",
+    "░░░░░░▀█▄▄▄▄▄███░░░██░░▀█▄▄▄▄▄█▀",
+    "░░░░░░░▀████▀▀▀░░░░██▄░░▀▀███▀░░",
+    "██▀▀▀░░░░░░░░░░░░░░░░░░░░░░░░░░░",
+    "▀░░▄░░░░░▄▄▄▄▄▄▄▄░░░▄▄▄▄▄▄░░░▄█░",
+    "░░░▀▀█▄▄█▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀██▀░░░",
+    "█▄░░░░░▀▀▀██████▀▀▀▀▀█████▀░░░░▄",
+    "░▀█▄░░░░░░░░░░░░▄▄▄░░░░░░░░░░░▄▀",
+    "░░░▀██▄░░░░░░░░░░▄█░░░░░░░░▄▄█▀░",
 ]
 
 
@@ -86,7 +87,7 @@ class MatrixEffect:
             font = pygame.font.SysFont("dejavusansmono", size)
             max_w = max(font.size(line)[0] for line in TROLL_FACE)
             total_h = font.get_linesize() * len(TROLL_FACE)
-            if max_w <= width * 0.90 and total_h <= height * 0.72:
+            if max_w <= width * 0.92 and total_h <= height * 0.78:
                 return font
             size -= 1
         return pygame.font.SysFont("dejavusansmono", 9)
@@ -113,26 +114,35 @@ class MatrixEffect:
                 self.speeds[col] = random.randint(max(3, self.font_size // 4), max(7, self.font_size // 2))
 
     def _draw_face(self, surface, reveal_fraction):
-        visible = max(0, min(len(TROLL_FACE), int(len(TROLL_FACE) * reveal_fraction + 0.999)))
-        if visible <= 0:
+        fraction = max(0.0, min(1.0, reveal_fraction))
+        if fraction <= 0:
             return
         line_h = self.face_font.get_linesize()
         total_h = line_h * len(TROLL_FACE)
         y0 = (self.height - total_h) // 2
-        for idx, line in enumerate(TROLL_FACE[:visible]):
-            glyph = self.face_font.render(line, True, (220, 255, 225))
-            x = (self.width - glyph.get_width()) // 2
+        total_chars = sum(len(line) for line in TROLL_FACE)
+        visible_chars = max(1, int(total_chars * fraction))
+        consumed = 0
+        for idx, line in enumerate(TROLL_FACE):
+            if consumed >= visible_chars:
+                break
+            take = min(len(line), visible_chars - consumed)
+            visible_line = line[:take]
+            consumed += len(line)
+            if not visible_line:
+                continue
+            glyph = self.face_font.render(visible_line, True, (220, 255, 225))
+            full_width = self.face_font.size(line)[0]
+            x = (self.width - full_width) // 2
             y = y0 + idx * line_h
-            # Black backing makes the revealed face readable over the rain.
             pad = 3
             pygame.draw.rect(surface, (0, 0, 0), pygame.Rect(x - pad, y, glyph.get_width() + pad * 2, line_h))
             surface.blit(glyph, (x, y))
 
     def draw(self, surface, elapsed):
         self._draw_matrix(surface)
-        if elapsed >= MATRIX_SECONDS:
-            fraction = min(1.0, (elapsed - MATRIX_SECONDS) / REVEAL_SECONDS)
-            self._draw_face(surface, fraction)
+        fraction = min(1.0, elapsed / MATRIX_REVEAL_SECONDS)
+        self._draw_face(surface, fraction)
 
 
 def draw_effect_for_orientation(screen, cfg, effect, elapsed):
@@ -188,7 +198,7 @@ def main():
     animation_active = False
     effect_started = None
     effect = None
-    effect_duration = MATRIX_SECONDS + REVEAL_SECONDS + TROLL_HOLD_SECONDS
+    effect_duration = MATRIX_REVEAL_SECONDS + TROLL_HOLD_SECONDS
     clock = pygame.time.Clock()
 
     while True:
