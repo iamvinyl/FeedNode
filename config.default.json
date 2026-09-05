@@ -43,11 +43,26 @@
     "animated_emotes": true,
     "max_animated_emotes": 12,
     "show_stats_bar": false,
-    "show_stats_viewers": true,
-    "show_stats_followers": true,
-    "show_stats_subscribers": true,
-    "show_stats_likes": false,
-    "combine_viewers": true,
+    "stats_mode": "combined",
+    "combined_stats_viewers": true,
+    "combined_stats_followers": true,
+    "combined_stats_subscribers": true,
+    "combined_stats_likes": false,
+    "twitch_stats_viewers": true,
+    "twitch_stats_followers": true,
+    "twitch_stats_subscribers": true,
+    "rumble_stats_viewers": true,
+    "rumble_stats_followers": true,
+    "rumble_stats_subscribers": true,
+    "rumble_stats_likes": true,
+    "youtube_stats_viewers": true,
+    "youtube_stats_subscribers": true,
+    "youtube_stats_members": true,
+    "youtube_stats_likes": true,
+    "kick_stats_viewers": true,
+    "kick_stats_followers": true,
+    "kick_stats_subscribers": true,
+    "kick_stats_likes": true,
     "show_build_footer": false,
     "stats_bar_panel": "#10141A",
     "stats_title_size": 14,
@@ -60,17 +75,9 @@
     "update_feed": "stable"
   },
   "platforms": {
-    "twitch": {
-      "enabled": true
-    },
-    "youtube": {
-      "enabled": false
-    },
-    "rumble": {
-      "enabled": false
-    },
-    "kick": {
-      "enabled": false
-    }
+    "twitch": {"enabled": true},
+    "youtube": {"enabled": false},
+    "rumble": {"enabled": false},
+    "kick": {"enabled": false}
   }
 }
