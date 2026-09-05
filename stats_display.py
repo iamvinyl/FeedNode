@@ -14,6 +14,7 @@ import display as base
 
 STATE = Path(os.getenv("FEEDNODE_STATE", "/var/lib/feednode"))
 TWITCH_TOKEN = STATE / "credentials" / "twitch.json"
+RUMBLE_TOKEN = STATE / "credentials" / "rumble.json"
 DISTRIBUTOR_FILE = Path(__file__).resolve().parent / "config" / "distributor.json"
 VERSION_FILE = Path(__file__).resolve().parent / "VERSION"
 STATS_REFRESH_SECONDS = 30.0
@@ -29,7 +30,15 @@ _original_render_layout = base.render_layout
 _original_draw_item = base.draw_item
 
 _stats_lock = threading.Lock()
-_stats = {"viewers": "--", "followers": "--", "subscribers": "--", "updated": 0.0, "refreshing": False}
+_stats = {
+    "twitch_viewers": "--",
+    "rumble_viewers": "--",
+    "followers": "--",
+    "subscribers": "--",
+    "rumble_likes": "--",
+    "updated": 0.0,
+    "refreshing": False,
+}
 _update_lock = threading.Lock()
 _update_status = {"available": False, "version": "", "updated": 0.0, "refreshing": False}
 
@@ -59,6 +68,10 @@ def _twitch_auth():
     return access_token, user_id, client_id
 
 
+def _rumble_configured():
+    return bool(_read_json(RUMBLE_TOKEN).get("api_url"))
+
+
 def _active_connection():
     try:
         result = subprocess.run(["nmcli", "-g", "GENERAL.CONNECTION", "device", "show", "wlan0"], text=True, capture_output=True, timeout=2)
@@ -79,7 +92,7 @@ def _lan_ip():
 
 
 def _refresh_stats_worker():
-    values = {"viewers": "--", "followers": "--", "subscribers": "--"}
+    values = {"twitch_viewers": "--", "rumble_viewers": "--", "followers": "--", "subscribers": "--", "rumble_likes": "--"}
     try:
         auth = _twitch_auth()
         if auth:
@@ -89,13 +102,20 @@ def _refresh_stats_worker():
                 streams = client.get("https://api.twitch.tv/helix/streams", params={"user_id": user_id})
                 if streams.status_code == 200:
                     data = streams.json().get("data") or []
-                    values["viewers"] = int(data[0].get("viewer_count", 0)) if data else 0
+                    values["twitch_viewers"] = int(data[0].get("viewer_count", 0)) if data else 0
                 followers = client.get("https://api.twitch.tv/helix/channels/followers", params={"broadcaster_id": user_id, "first": 1})
                 if followers.status_code == 200:
                     values["followers"] = int(followers.json().get("total", 0))
                 subscribers = client.get("https://api.twitch.tv/helix/subscriptions", params={"broadcaster_id": user_id, "first": 1})
                 if subscribers.status_code == 200:
                     values["subscribers"] = int(subscribers.json().get("total", 0))
+        with httpx.Client(timeout=5.0) as client:
+            rumble = client.get("http://127.0.0.1:8787/api/rumble/status")
+            if rumble.status_code == 200:
+                data = rumble.json()
+                if data.get("credential_saved"):
+                    values["rumble_viewers"] = int(data.get("viewers") or 0)
+                    values["rumble_likes"] = int(data.get("likes") or 0)
     except Exception:
         pass
     finally:
@@ -112,7 +132,7 @@ def get_stats():
         if stale and not _stats.get("refreshing"):
             _stats["refreshing"] = True
             threading.Thread(target=_refresh_stats_worker, daemon=True).start()
-        return {"viewers": _stats["viewers"], "followers": _stats["followers"], "subscribers": _stats["subscribers"]}
+        return {k: _stats[k] for k in ("twitch_viewers", "rumble_viewers", "followers", "subscribers", "rumble_likes")}
 
 
 def _refresh_update_worker():
@@ -177,6 +197,33 @@ def _format_count(value):
         return str(value)
 
 
+def _numeric(value):
+    try:
+        return int(value)
+    except Exception:
+        return 0
+
+
+def stats_entries(cfg, stats):
+    style = cfg.get("style", {})
+    entries = []
+    if style.get("show_stats_viewers", True):
+        if style.get("combine_viewers", True):
+            total = _numeric(stats["twitch_viewers"]) + _numeric(stats["rumble_viewers"])
+            entries.append(("VIEWERS", total))
+        else:
+            entries.append(("TWITCH VIEWERS", stats["twitch_viewers"]))
+            if _rumble_configured():
+                entries.append(("RUMBLE VIEWERS", stats["rumble_viewers"]))
+    if style.get("show_stats_followers", True):
+        entries.append(("FOLLOWERS", stats["followers"]))
+    if style.get("show_stats_subscribers", True):
+        entries.append(("SUBS", stats["subscribers"]))
+    if style.get("show_stats_likes", False) and _rumble_configured():
+        entries.append(("RUMBLE LIKES", stats["rumble_likes"]))
+    return entries
+
+
 def stats_bar_height(cfg, fonts):
     if not cfg.get("style", {}).get("show_stats_bar", False):
         return 0
@@ -195,8 +242,10 @@ def draw_stats_bar(surface, cfg, fonts, height):
     stats = get_stats()
     pygame.draw.rect(surface, panel, pygame.Rect(0, 0, surface.get_width(), height))
     pygame.draw.line(surface, stats_color, (0, height - 1), (surface.get_width(), height - 1), 1)
-    entries = (("VIEWERS", stats["viewers"]), ("FOLLOWERS", stats["followers"]), ("SUBS", stats["subscribers"]))
-    column_width = surface.get_width() / 3.0
+    entries = stats_entries(cfg, stats)
+    if not entries:
+        return
+    column_width = surface.get_width() / float(len(entries))
     for idx, (label, value) in enumerate(entries):
         label_surf = fonts["stats_title"].render(label, True, stats_color)
         value_surf = fonts["stats_number"].render(_format_count(value), True, stats_accent)
@@ -244,7 +293,7 @@ def draw_idle_state(surface, cfg, fonts):
     background = base.color(style.get("background"), "#080A0D")
     text = base.color(style.get("text"), "#F4F7FA")
     muted = base.color(style.get("muted"), "#8C98A6")
-    accent = base.color(style.get("activity_accent"), "#8C5CFF")
+    accent = base.color(style.get("system_event_accent", style.get("activity_accent")), "#8C5CFF")
     surface.fill(background)
     active = _active_connection()
     ip = _lan_ip()
@@ -252,7 +301,7 @@ def draw_idle_state(surface, cfg, fonts):
         status = "SETUP REQUIRED"
         lines = ["Connect to FeedNode-Setup", "http://10.42.0.1/setup"]
     else:
-        status = "TWITCH NOT CONNECTED"
+        status = "PLATFORMS NOT CONNECTED"
         address = f"http://{ip}/settings" if ip else "http://feednode.local"
         lines = ["Open FeedNode settings", address]
     brand = fonts["idle_brand"].render("FEEDNODE", True, text)
@@ -269,17 +318,17 @@ def draw_idle_state(surface, cfg, fonts):
         y += item.get_height() + 8
 
 
-def _event_panel_key(item):
+def _platform_style_keys(item):
     platform = str(item.get("platform") or "system").strip().lower()
     if platform == "twitch":
-        return "twitch_event_panel"
+        return "twitch_event_panel", "twitch_event_accent"
     if platform == "rumble":
-        return "rumble_event_panel"
+        return "rumble_event_panel", "rumble_event_accent"
     if platform in {"youtube", "you tube"}:
-        return "youtube_event_panel"
+        return "youtube_event_panel", "youtube_event_accent"
     if platform == "kick":
-        return "kick_event_panel"
-    return "system_event_panel"
+        return "kick_event_panel", "kick_event_accent"
+    return "system_event_panel", "system_event_accent"
 
 
 def draw_item(screen, rect, item, cfg, fonts, anim_ctx):
@@ -287,14 +336,15 @@ def draw_item(screen, rect, item, cfg, fonts, anim_ctx):
         return _original_draw_item(screen, rect, item, cfg, fonts, anim_ctx)
     event_cfg = dict(cfg)
     event_style = dict(cfg.get("style", {}))
-    fallback = event_style.get("event_panel", event_style.get("panel", "#10141A"))
-    event_style["panel"] = event_style.get(_event_panel_key(item), fallback)
+    panel_key, accent_key = _platform_style_keys(item)
+    event_style["panel"] = event_style.get(panel_key, event_style.get("event_panel", event_style.get("panel", "#10141A")))
+    event_style["activity_accent"] = event_style.get(accent_key, event_style.get("activity_accent", "#8C5CFF"))
     event_cfg["style"] = event_style
     return _original_draw_item(screen, rect, item, event_cfg, fonts, anim_ctx)
 
 
 def render_layout(surface, cfg, feed, fonts, anim_ctx):
-    if not feed and not _twitch_auth():
+    if not feed and not _twitch_auth() and not _rumble_configured():
         draw_idle_state(surface, cfg, fonts)
         return
     bar_height = stats_bar_height(cfg, fonts)
@@ -353,7 +403,7 @@ def main():
         if now - last_update_redraw >= UPDATE_REDRAW_SECONDS:
             dirty = True
             last_update_redraw = now
-        if not feed and not _twitch_auth() and now - last_idle_redraw >= 5.0:
+        if not feed and not _twitch_auth() and not _rumble_configured() and now - last_idle_redraw >= 5.0:
             dirty = True
             last_idle_redraw = now
         while True:
@@ -362,8 +412,12 @@ def main():
             except Empty:
                 break
             feed.append(item)
-            if len(feed) > 100:
-                del feed[:-100]
+            try:
+                limit = max(10, min(250, int((cfg.get("system") or {}).get("max_feed_items", 100))))
+            except Exception:
+                limit = 100
+            if len(feed) > limit:
+                del feed[:-limit]
             dirty = True
         if dirty or animation_active:
             animation_active = base.render(screen, cfg, feed, fonts)
