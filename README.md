@@ -1,10 +1,19 @@
-# FeedNode v0.4.0 — DIY Raspberry Pi Installer
+# FeedNode — DIY Raspberry Pi Installer
 
 FeedNode is a Raspberry Pi unified chat and activity-feed appliance built for a dedicated HDMI display. It combines streaming-platform chat, activity events, native HDMI rendering, and a lightweight web settings interface into one always-on device.
 
 This guide is written for someone building a FeedNode from scratch.
 
-Version 0.4.0 uses a native pygame/SDL2 renderer through Raspberry Pi KMSDRM. No Chromium kiosk, X11 desktop, browser window, or desktop environment is required for HDMI output.
+FeedNode uses a native pygame/SDL2 renderer through Raspberry Pi KMSDRM. No Chromium kiosk, X11 desktop, browser window, or desktop environment is required for HDMI output.
+
+## Release branches
+
+FeedNode uses two development paths:
+
+- **`stable`** — public DIY installs and normal production use.
+- **`main`** — active development and beta work.
+
+New users should always install from the `stable` branch. Beta builds are opt-in later from **System & Recovery → Update Feed → Beta**.
 
 ## What you need
 
@@ -87,13 +96,13 @@ Verify:
 git --version
 ```
 
-## 4. Clone FeedNode
+## 4. Clone FeedNode Stable
 
-Clone the repository into your home folder:
+Clone the dedicated Stable branch into your home folder:
 
 ```bash
 cd ~
-git clone https://github.com/iamvinyl/FeedNode.git
+git clone --branch stable --single-branch https://github.com/iamvinyl/FeedNode.git
 cd FeedNode
 ```
 
@@ -103,11 +112,7 @@ Check the included build version:
 cat VERSION
 ```
 
-For this guide it should report:
-
-```text
-0.4.0
-```
+The version should be a normal stable version without `-beta`, `-alpha`, or `-rc`.
 
 ## 5. Install FeedNode
 
@@ -242,19 +247,7 @@ moderator:read:followers
 channel:read:redemptions
 ```
 
-Twitch is currently the implemented live connector.
-
 FeedNode can display Twitch chat and supported activity events with usernames, Twitch username colors, avatars, badges, static and animated emotes, activity cards, and optional viewer/follower/subscriber stats.
-
-## Future platform connectors
-
-The UI and config include future connector slots for:
-
-- Rumble chat + activity
-- YouTube chat + activity
-- Kick chat + activity
-
-These are placeholders for future connector builds and are not yet equivalent to the Twitch integration.
 
 ## 9. Configure the HDMI layout
 
@@ -279,17 +272,7 @@ Use the **Layout** section in Settings to change orientation, combined/split mod
 
 ## 10. Customize appearance
 
-The Settings page includes controls for background color, message panel color, text colors, username accent, message/user/event sizes, avatar size, top-bar styling, animated emote limits, and the optional HDMI build footer.
-
-### Per-platform activity colors
-
-Activity/event cards can have separate panel colors for:
-
-- FeedNode / System
-- Twitch
-- Rumble
-- YouTube
-- Kick
+The Settings page includes controls for background color, message panel color, text colors, username accent, message/user/event sizes, avatar size, top-bar styling, animated media limits, and the optional HDMI build footer.
 
 ### Restore appearance defaults
 
@@ -301,7 +284,7 @@ It does not reset orientation, combined/split mode, order, or split ratio.
 
 If FeedNode is waiting for first-time Wi-Fi setup, the HDMI display shows setup instructions instead of appearing dead.
 
-If FeedNode is on the LAN but Twitch is not connected, the HDMI display shows an account/setup-required state and the settings address.
+If FeedNode is on the LAN but no streaming account is connected, the HDMI display shows an account/setup-required state and the settings address.
 
 Once activity or chat arrives, the normal unified feed display takes over.
 
@@ -325,8 +308,6 @@ Browser display preview:
 http://feednode.local/display
 ```
 
-The Settings page includes an **Open Display** link that launches the browser display in a new tab.
-
 Direct IP access uses the same paths without a port number:
 
 ```text
@@ -341,28 +322,27 @@ Setup page while connected to `FeedNode-Setup`:
 http://10.42.0.1/setup
 ```
 
-FeedNode still runs its application backend internally on port 8787, but end users normally do not need to use that port directly.
-
 ## 13. Firmware updates
 
 After the first install, normal updates can be performed from the FeedNode Settings page.
 
-The updater checks the latest GitHub release, verifies the downloaded package, installs the new build, and returns FeedNode to the HDMI feed.
-
-During an update the HDMI display shows the FeedNode `UPDATING` splash.
+FeedNode defaults to the **Stable** update feed. Beta builds are only offered after explicitly selecting the Beta feed in **System & Recovery**.
 
 Normal updates preserve your FeedNode settings and connected accounts.
 
-## Manual source update
+## Manual stable source update
 
 If you prefer to update from the Pi terminal:
 
 ```bash
 cd ~/FeedNode
-git pull
+git checkout stable
+git pull origin stable
 sudo ./install.sh
 sudo reboot
 ```
+
+Do not switch a public/production install to `main` unless you intentionally want development code.
 
 ## Factory reset
 
@@ -382,9 +362,9 @@ and open:
 http://10.42.0.1/setup
 ```
 
-## Current build
+## Release channels
 
-```text
-FeedNode v0.4.0
-Unified Chat Feed
-```
+- **Stable** — normal releases intended for everyday use.
+- **Beta** — prerelease builds for testing new features and changes.
+
+A fresh DIY installation should always start from the `stable` branch. Beta is opt-in from the FeedNode Settings page.
