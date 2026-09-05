@@ -215,6 +215,35 @@ def wrap_text(font, text, max_width):
     lines.append(current)
     return lines
 
+def draw_platform_mark(screen, x, y, size, platform, fallback_color):
+    p = str(platform or "").strip().lower()
+    size = max(10, int(size))
+    if p == "twitch":
+        purple = pygame.Color("#9147FF")
+        r = pygame.Rect(x, y, size, size)
+        pygame.draw.rect(screen, purple, r, border_radius=max(2, size // 5))
+        white = pygame.Color("#FFFFFF")
+        inset = max(2, size // 4)
+        pygame.draw.line(screen, white, (x + inset, y + inset), (x + inset, y + size - inset), max(1, size // 7))
+        pygame.draw.line(screen, white, (x + size - inset, y + inset), (x + size - inset, y + size - inset), max(1, size // 7))
+    elif p == "rumble":
+        green = pygame.Color("#85C742")
+        points = [(x + size // 5, y + size // 7), (x + size - size // 7, y + size // 2), (x + size // 5, y + size - size // 7)]
+        pygame.draw.polygon(screen, green, points)
+        pygame.draw.polygon(screen, pygame.Color("#CDEB7B"), [(x + size // 5, y + size // 7), (x + size // 2, y + size // 2), (x + size // 5, y + size // 2)])
+    elif p in {"youtube", "you tube"}:
+        red = pygame.Color("#FF0033")
+        pygame.draw.rect(screen, red, pygame.Rect(x, y + size // 7, size, size * 5 // 7), border_radius=max(2, size // 4))
+        pygame.draw.polygon(screen, pygame.Color("#FFFFFF"), [(x + size * 2 // 5, y + size // 3), (x + size * 2 // 5, y + size * 2 // 3), (x + size * 3 // 4, y + size // 2)])
+    elif p == "kick":
+        green = pygame.Color("#53FC18")
+        pygame.draw.rect(screen, green, pygame.Rect(x, y, size, size), border_radius=max(1, size // 8))
+        pygame.draw.line(screen, pygame.Color("#071006"), (x + size // 3, y + size // 4), (x + size // 3, y + size * 3 // 4), max(1, size // 6))
+        pygame.draw.line(screen, pygame.Color("#071006"), (x + size // 3, y + size // 2), (x + size * 3 // 4, y + size // 4), max(1, size // 6))
+        pygame.draw.line(screen, pygame.Color("#071006"), (x + size // 3, y + size // 2), (x + size * 3 // 4, y + size * 3 // 4), max(1, size // 6))
+    else:
+        pygame.draw.circle(screen, fallback_color, (x + size // 2, y + size // 2), max(2, size // 3))
+
 def draw_message_body(screen, x, y, width, item, cfg, fonts, anim_ctx):
     style = cfg.get("style", {})
     text_color = color(style.get("text"), "#F4F7FA")
@@ -336,8 +365,8 @@ def draw_item(screen, rect, item, cfg, fonts, anim_ctx):
     screen.blit(name, (x, y))
     mx = x + name.get_width() + 8
     if style.get("show_platform", True):
-        meta = fonts["meta"].render(str(item.get("platform") or ""), True, muted)
-        screen.blit(meta, (mx, y + max(0, name.get_height()-meta.get_height())))
+        icon_size = max(11, min(name.get_height() - 2, int(style.get("username_size", 21) * 0.72)))
+        draw_platform_mark(screen, mx, y + max(0, (name.get_height() - icon_size)//2), icon_size, item.get("platform"), muted)
     y += fonts["user"].get_linesize() + 3
     draw_message_body(screen, x, y, rect.right - spacing - x, item, cfg, fonts, anim_ctx)
 
