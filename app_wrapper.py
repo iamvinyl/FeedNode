@@ -4,9 +4,11 @@ import subprocess
 import time
 from pathlib import Path
 
+from fastapi import Request
 from fastapi.responses import JSONResponse
 
 import app as base
+from connectors.rumble import RumbleConnector
 
 app = base.app
 UPDATER = Path(__file__).resolve().parent / "updater" / "updater.py"
@@ -53,6 +55,60 @@ async def publish_limited(item):
 
 
 base.publish = publish_limited
+rumble = RumbleConnector(base.publish, base.CREDS_DIR / "rumble.json")
+
+
+@app.on_event("startup")
+async def start_rumble_connector():
+    rumble.start()
+
+
+@app.on_event("shutdown")
+async def stop_rumble_connector():
+    await rumble.stop()
+
+
+@app.get("/api/rumble/status")
+def rumble_status():
+    return rumble.public_status()
+
+
+@app.post("/api/rumble/connect")
+async def rumble_connect(request: Request):
+    try:
+        payload = await request.json()
+        status = await rumble.save_url(str(payload.get("api_url") or ""))
+        config = base.load_config()
+        config.setdefault("platforms", {}).setdefault("rumble", {})["enabled"] = True
+        base.save_config(config)
+        return {"ok": True, **status}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+
+
+@app.post("/api/rumble/test")
+async def rumble_test():
+    url = rumble._read_url()
+    if not url:
+        return JSONResponse({"ok": False, "error": "No Rumble API credential is saved"}, status_code=400)
+    try:
+        data = await rumble.test_url(url)
+        rumble._update_metrics(data)
+        rumble.state["connected"] = True
+        rumble.state["last_error"] = None
+        return {"ok": True, **rumble.public_status()}
+    except Exception as exc:
+        rumble.state["last_error"] = str(exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=503)
+
+
+@app.post("/api/rumble/disconnect")
+def rumble_disconnect():
+    rumble.disconnect()
+    config = base.load_config()
+    config.setdefault("platforms", {}).setdefault("rumble", {})["enabled"] = False
+    base.save_config(config)
+    return {"ok": True}
 
 
 async def _run_system_action(*args):
