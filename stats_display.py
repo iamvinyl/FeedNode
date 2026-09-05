@@ -29,16 +29,15 @@ _original_load_fonts = base.load_fonts
 _original_render_layout = base.render_layout
 _original_draw_item = base.draw_item
 
+STAT_KEYS = (
+    "twitch_viewers", "twitch_followers", "twitch_subscribers",
+    "rumble_viewers", "rumble_followers", "rumble_subscribers", "rumble_likes",
+    "youtube_viewers", "youtube_subscribers", "youtube_members", "youtube_likes",
+    "kick_viewers", "kick_followers", "kick_subscribers", "kick_likes",
+)
 _stats_lock = threading.Lock()
-_stats = {
-    "twitch_viewers": "--",
-    "rumble_viewers": "--",
-    "followers": "--",
-    "subscribers": "--",
-    "rumble_likes": "--",
-    "updated": 0.0,
-    "refreshing": False,
-}
+_stats = {key: "--" for key in STAT_KEYS}
+_stats.update({"updated": 0.0, "refreshing": False})
 _update_lock = threading.Lock()
 _update_status = {"available": False, "version": "", "updated": 0.0, "refreshing": False}
 
@@ -72,6 +71,16 @@ def _rumble_configured():
     return bool(_read_json(RUMBLE_TOKEN).get("api_url"))
 
 
+def _platform_configured(name):
+    if name == "twitch":
+        return bool(_twitch_auth())
+    if name == "rumble":
+        return _rumble_configured()
+    # YouTube and Kick rows are already configurable, but their connectors do
+    # not exist yet. Keeping them false prevents empty rows from consuming HDMI.
+    return False
+
+
 def _active_connection():
     try:
         result = subprocess.run(["nmcli", "-g", "GENERAL.CONNECTION", "device", "show", "wlan0"], text=True, capture_output=True, timeout=2)
@@ -92,7 +101,7 @@ def _lan_ip():
 
 
 def _refresh_stats_worker():
-    values = {"twitch_viewers": "--", "rumble_viewers": "--", "followers": "--", "subscribers": "--", "rumble_likes": "--"}
+    values = {key: "--" for key in STAT_KEYS}
     try:
         auth = _twitch_auth()
         if auth:
@@ -105,16 +114,19 @@ def _refresh_stats_worker():
                     values["twitch_viewers"] = int(data[0].get("viewer_count", 0)) if data else 0
                 followers = client.get("https://api.twitch.tv/helix/channels/followers", params={"broadcaster_id": user_id, "first": 1})
                 if followers.status_code == 200:
-                    values["followers"] = int(followers.json().get("total", 0))
+                    values["twitch_followers"] = int(followers.json().get("total", 0))
                 subscribers = client.get("https://api.twitch.tv/helix/subscriptions", params={"broadcaster_id": user_id, "first": 1})
                 if subscribers.status_code == 200:
-                    values["subscribers"] = int(subscribers.json().get("total", 0))
+                    values["twitch_subscribers"] = int(subscribers.json().get("total", 0))
+
         with httpx.Client(timeout=5.0) as client:
             rumble = client.get("http://127.0.0.1:8787/api/rumble/status")
             if rumble.status_code == 200:
                 data = rumble.json()
                 if data.get("credential_saved"):
                     values["rumble_viewers"] = int(data.get("viewers") or 0)
+                    values["rumble_followers"] = int(data.get("followers") or 0)
+                    values["rumble_subscribers"] = int(data.get("subscribers") or 0)
                     values["rumble_likes"] = int(data.get("likes") or 0)
     except Exception:
         pass
@@ -132,7 +144,7 @@ def get_stats():
         if stale and not _stats.get("refreshing"):
             _stats["refreshing"] = True
             threading.Thread(target=_refresh_stats_worker, daemon=True).start()
-        return {k: _stats[k] for k in ("twitch_viewers", "rumble_viewers", "followers", "subscribers", "rumble_likes")}
+        return {key: _stats[key] for key in STAT_KEYS}
 
 
 def _refresh_update_worker():
@@ -204,58 +216,115 @@ def _numeric(value):
         return 0
 
 
-def stats_entries(cfg, stats):
-    style = cfg.get("style", {})
+def _combined_entries(style, stats):
     entries = []
-    if style.get("show_stats_viewers", True):
-        if style.get("combine_viewers", True):
-            total = _numeric(stats["twitch_viewers"]) + _numeric(stats["rumble_viewers"])
-            entries.append(("VIEWERS", total))
-        else:
-            entries.append(("TWITCH VIEWERS", stats["twitch_viewers"]))
-            if _rumble_configured():
-                entries.append(("RUMBLE VIEWERS", stats["rumble_viewers"]))
-    if style.get("show_stats_followers", True):
-        entries.append(("FOLLOWERS", stats["followers"]))
-    if style.get("show_stats_subscribers", True):
-        entries.append(("SUBS", stats["subscribers"]))
-    if style.get("show_stats_likes", False) and _rumble_configured():
-        entries.append(("RUMBLE LIKES", stats["rumble_likes"]))
+    if style.get("combined_stats_viewers", style.get("show_stats_viewers", True)):
+        entries.append(("VIEWERS", _numeric(stats["twitch_viewers"]) + _numeric(stats["rumble_viewers"]) + _numeric(stats["youtube_viewers"])))
+    if style.get("combined_stats_followers", style.get("show_stats_followers", True)):
+        entries.append(("FOLLOWERS", _numeric(stats["twitch_followers"]) + _numeric(stats["rumble_followers"]) + _numeric(stats["youtube_subscribers"])))
+    if style.get("combined_stats_subscribers", style.get("show_stats_subscribers", True)):
+        entries.append(("SUBSCRIBERS", _numeric(stats["twitch_subscribers"]) + _numeric(stats["rumble_subscribers"]) + _numeric(stats["youtube_members"])))
+    if style.get("combined_stats_likes", style.get("show_stats_likes", False)):
+        entries.append(("LIKES", _numeric(stats["rumble_likes"]) + _numeric(stats["youtube_likes"])))
     return entries
+
+
+def _platform_entries(style, stats, platform):
+    if platform == "twitch":
+        mapping = (("twitch_stats_viewers", "VIEWERS", "twitch_viewers"), ("twitch_stats_followers", "FOLLOWERS", "twitch_followers"), ("twitch_stats_subscribers", "SUBS", "twitch_subscribers"))
+    elif platform == "rumble":
+        mapping = (("rumble_stats_viewers", "VIEWERS", "rumble_viewers"), ("rumble_stats_followers", "FOLLOWERS", "rumble_followers"), ("rumble_stats_subscribers", "SUBSCRIBERS", "rumble_subscribers"), ("rumble_stats_likes", "LIKES", "rumble_likes"))
+    elif platform == "youtube":
+        mapping = (("youtube_stats_viewers", "VIEWERS", "youtube_viewers"), ("youtube_stats_subscribers", "SUBSCRIBERS", "youtube_subscribers"), ("youtube_stats_members", "MEMBERS", "youtube_members"), ("youtube_stats_likes", "LIKES", "youtube_likes"))
+    else:
+        mapping = (("kick_stats_viewers", "VIEWERS", "kick_viewers"), ("kick_stats_followers", "FOLLOWERS", "kick_followers"), ("kick_stats_subscribers", "SUBSCRIBERS", "kick_subscribers"), ("kick_stats_likes", "LIKES", "kick_likes"))
+    return [(label, stats[key]) for option, label, key in mapping if style.get(option, True)]
+
+
+def stats_rows(cfg, stats=None):
+    style = cfg.get("style", {})
+    mode = str(style.get("stats_mode") or ("platform" if style.get("combine_viewers") is False else "combined")).lower()
+    stats = stats or {key: "--" for key in STAT_KEYS}
+    if mode != "platform":
+        entries = _combined_entries(style, stats)
+        return [("COMBINED", entries, style.get("stats_bar_panel", style.get("panel", "#10141A")), style.get("stats_accent", style.get("text", "#F4F7FA")))] if entries else []
+
+    rows = []
+    for platform, label, panel_key, accent_key in (
+        ("twitch", "TWITCH", "twitch_event_panel", "twitch_event_accent"),
+        ("rumble", "RUMBLE", "rumble_event_panel", "rumble_event_accent"),
+        ("youtube", "YOUTUBE", "youtube_event_panel", "youtube_event_accent"),
+        ("kick", "KICK", "kick_event_panel", "kick_event_accent"),
+    ):
+        if not _platform_configured(platform):
+            continue
+        entries = _platform_entries(style, stats, platform)
+        if entries:
+            rows.append((label, entries, style.get(panel_key, style.get("stats_bar_panel", "#10141A")), style.get(accent_key, style.get("stats_accent", "#F4F7FA"))))
+    return rows
+
+
+def stats_row_height(fonts):
+    text_height = max(fonts["stats_title"].get_linesize(), fonts["stats_number"].get_linesize())
+    padding = max(14, int(text_height * 0.55))
+    return text_height + padding
 
 
 def stats_bar_height(cfg, fonts):
     if not cfg.get("style", {}).get("show_stats_bar", False):
         return 0
-    return max(fonts["stats_title"].get_linesize(), fonts["stats_number"].get_linesize()) + 20
+    rows = stats_rows(cfg)
+    return stats_row_height(fonts) * len(rows)
 
 
 def build_footer_height(cfg):
     return BUILD_FOOTER_HEIGHT if cfg.get("style", {}).get("show_build_footer", False) else 0
 
 
-def draw_stats_bar(surface, cfg, fonts, height):
+def _draw_stats_row(surface, cfg, fonts, rect, platform_label, entries, panel_value, accent_value):
     style = cfg.get("style", {})
-    panel = base.color(style.get("stats_bar_panel", style.get("panel")), "#10141A")
+    panel = base.color(panel_value, "#10141A")
     stats_color = base.color(style.get("stats_color") or style.get("muted"), "#8C98A6")
-    stats_accent = base.color(style.get("stats_accent") or style.get("text"), "#F4F7FA")
-    stats = get_stats()
-    pygame.draw.rect(surface, panel, pygame.Rect(0, 0, surface.get_width(), height))
-    pygame.draw.line(surface, stats_color, (0, height - 1), (surface.get_width(), height - 1), 1)
-    entries = stats_entries(cfg, stats)
+    accent = base.color(accent_value, style.get("stats_accent", "#F4F7FA"))
+    pygame.draw.rect(surface, panel, rect)
+    pygame.draw.line(surface, stats_color, (rect.left, rect.bottom - 1), (rect.right, rect.bottom - 1), 1)
     if not entries:
         return
-    column_width = surface.get_width() / float(len(entries))
+
+    label_margin = max(12, int(rect.width * 0.018))
+    platform_surf = fonts["stats_title"].render(platform_label, True, accent)
+    platform_area = min(max(platform_surf.get_width() + label_margin * 2, int(rect.width * 0.14)), int(rect.width * 0.25))
+    platform_y = rect.y + (rect.height - platform_surf.get_height()) // 2
+    surface.blit(platform_surf, (rect.x + label_margin, platform_y))
+
+    content_x = rect.x + platform_area
+    content_width = max(1, rect.width - platform_area)
+    column_width = content_width / float(len(entries))
     for idx, (label, value) in enumerate(entries):
         label_surf = fonts["stats_title"].render(label, True, stats_color)
-        value_surf = fonts["stats_number"].render(_format_count(value), True, stats_accent)
+        value_surf = fonts["stats_number"].render(_format_count(value), True, accent)
         gap = max(5, int(fonts["stats_number"].get_height() * 0.28))
         total_width = label_surf.get_width() + gap + value_surf.get_width()
-        center_x = int((idx + 0.5) * column_width)
+        center_x = int(content_x + (idx + 0.5) * column_width)
         x = int(center_x - total_width / 2)
-        center_y = height // 2
+        center_y = rect.y + rect.height // 2
         surface.blit(label_surf, (x, center_y - label_surf.get_height() // 2))
         surface.blit(value_surf, (x + label_surf.get_width() + gap, center_y - value_surf.get_height() // 2))
+
+
+def draw_stats_bar(surface, cfg, fonts, height):
+    stats = get_stats()
+    rows = stats_rows(cfg, stats)
+    if not rows:
+        return
+    row_height = stats_row_height(fonts)
+    y = 0
+    for platform_label, entries, panel_value, accent_value in rows:
+        remaining = max(1, min(row_height, height - y))
+        _draw_stats_row(surface, cfg, fonts, pygame.Rect(0, y, surface.get_width(), remaining), platform_label, entries, panel_value, accent_value)
+        y += row_height
+        if y >= height:
+            break
 
 
 def draw_build_footer(surface, cfg, fonts, height):
