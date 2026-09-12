@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>FeedNode Settings</title>
-  <link rel="stylesheet" href="/static/admin.css?v=0.4.7-beta.2">
+  <link rel="stylesheet" href="/static/admin.css?v=0.4.7-beta.3">
 </head>
 <body>
 <main class="wrap wide">
@@ -121,6 +121,16 @@
           <label>Update Feed<select id="update_feed"><option value="stable">Stable</option><option value="beta">Beta</option></select><span class="muted">Beta receives prerelease builds and may contain bugs.</span></label>
         </div>
         <div class="checks"><label><input id="show_build_footer" type="checkbox"> Show build footer on HDMI</label></div>
+
+        <div class="firmware-box">
+          <div class="firmware-head">
+            <div><strong>Diagnostic Logging</strong><p id="diagnosticLogStatus" class="muted">Checking log status…</p></div>
+            <div class="buttons"><a class="button secondary" href="/api/diagnostics/export">Export Log</a><button class="secondary" onclick="clearDiagnosticLog()">Clear Log</button></div>
+          </div>
+          <div class="checks"><label><input id="diagnostic_logging" type="checkbox"> Enable diagnostic logging</label></div>
+          <p class="muted">Records Twitch/EventSub connection state, reconnects, subscription changes, errors and periodic health snapshots. Chat messages and account credentials are not written to this log.</p>
+        </div>
+
         <p>Device controls and recovery actions.</p>
         <div class="buttons"><button class="secondary" onclick="rebootFeedNode()">Reboot FeedNode</button><button class="secondary" onclick="resetThing('wifi')">Reset Wi-Fi</button><button class="secondary" onclick="resetThing('accounts')">Disconnect All Accounts</button><button class="secondary" onclick="resetThing('cache')">Clear Cache</button><button class="dangerbtn" onclick="factoryReset()">Factory Reset</button></div>
         <button onclick="saveSystemSettings()">Save System Settings</button>
@@ -131,9 +141,14 @@
 <script>
 window.FEEDNODE_CONFIG={{ config|tojson }};
 const updateFeedEl=document.getElementById('update_feed');
+const diagnosticLoggingEl=document.getElementById('diagnostic_logging');
 updateFeedEl.value=(window.FEEDNODE_CONFIG.system&&window.FEEDNODE_CONFIG.system.update_feed)||'stable';
-async function saveSystemSettings(){const el=document.getElementById('max_feed_items');const value=Math.max(10,Math.min(250,parseInt(el.value||'100',10)));el.value=value;window.FEEDNODE_CONFIG.system=window.FEEDNODE_CONFIG.system||{};window.FEEDNODE_CONFIG.system.max_feed_items=value;window.FEEDNODE_CONFIG.system.update_feed=updateFeedEl.value==='beta'?'beta':'stable';await saveConfig();await checkFirmware(true);}
+diagnosticLoggingEl.checked=!!(window.FEEDNODE_CONFIG.system&&window.FEEDNODE_CONFIG.system.diagnostic_logging);
+async function refreshDiagnosticStatus(){try{const d=await fetch('/api/diagnostics/status',{cache:'no-store'}).then(r=>r.json());const kb=Math.round((d.bytes||0)/1024);document.getElementById('diagnosticLogStatus').textContent=(d.enabled?'Logging enabled':'Logging disabled')+' · '+kb+' KB stored';}catch(e){document.getElementById('diagnosticLogStatus').textContent='Log status unavailable';}}
+async function clearDiagnosticLog(){if(!confirm('Clear the saved FeedNode diagnostic log?'))return;await fetch('/api/diagnostics/clear',{method:'POST'});await refreshDiagnosticStatus();}
+async function saveSystemSettings(){const el=document.getElementById('max_feed_items');const value=Math.max(10,Math.min(250,parseInt(el.value||'100',10)));el.value=value;window.FEEDNODE_CONFIG.system=window.FEEDNODE_CONFIG.system||{};window.FEEDNODE_CONFIG.system.max_feed_items=value;window.FEEDNODE_CONFIG.system.update_feed=updateFeedEl.value==='beta'?'beta':'stable';window.FEEDNODE_CONFIG.system.diagnostic_logging=diagnosticLoggingEl.checked;await saveConfig();await checkFirmware(true);await refreshDiagnosticStatus();}
+refreshDiagnosticStatus();
 </script>
-<script src="/static/settings.js?v=0.4.7-beta.2"></script>
+<script src="/static/settings.js?v=0.4.7-beta.3"></script>
 </body>
 </html>
