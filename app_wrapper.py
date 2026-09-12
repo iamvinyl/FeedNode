@@ -2,10 +2,11 @@ import asyncio
 import json
 import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 import app as base
 from scripts.rumble_connector import RumbleConnector
@@ -14,12 +15,18 @@ app = base.app
 UPDATER = Path(__file__).resolve().parent / "updater" / "updater.py"
 PYTHON = Path("/opt/feednode/venv/bin/python")
 FIRMWARE_LAUNCHER = Path("/usr/local/bin/feednode-firmware-update")
+VERSION_FILE = Path(__file__).resolve().parent / "VERSION"
+DIAG_DIR = base.STATE / "logs"
+DIAG_LOG = DIAG_DIR / "feednode-diagnostics.txt"
+DIAG_OLD = DIAG_DIR / "feednode-diagnostics.1.txt"
+DIAG_MAX_BYTES = 2 * 1024 * 1024
 UPDATE_CACHE_SECONDS = 300.0
 DEFAULT_FEED_ITEMS = 100
 MIN_FEED_ITEMS = 10
 MAX_FEED_ITEMS = 250
 _update_cache = {"data": None, "checked": 0.0}
 _update_lock = asyncio.Lock()
+_diag_task = None
 
 
 def configured_feed_limit():
@@ -32,6 +39,96 @@ def configured_update_feed():
     try:value=str((base.load_config().get("system") or {}).get("update_feed","stable")).lower()
     except Exception:value="stable"
     return value if value in {"stable","beta"} else "stable"
+
+
+def diagnostic_enabled():
+    try:return bool((base.load_config().get("system") or {}).get("diagnostic_logging",False))
+    except Exception:return False
+
+
+def installed_version():
+    try:return VERSION_FILE.read_text().strip()
+    except Exception:return "unknown"
+
+
+def _rotate_diagnostic_log():
+    try:
+        if DIAG_LOG.exists() and DIAG_LOG.stat().st_size >= DIAG_MAX_BYTES:
+            DIAG_OLD.unlink(missing_ok=True)
+            DIAG_LOG.replace(DIAG_OLD)
+    except Exception:
+        pass
+
+
+def diagnostic_log(category, message):
+    if not diagnostic_enabled():
+        return
+    try:
+        DIAG_DIR.mkdir(parents=True,exist_ok=True)
+        _rotate_diagnostic_log()
+        stamp=datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        clean=str(message).replace("\r"," ").replace("\n"," ")
+        with DIAG_LOG.open("a",encoding="utf-8") as handle:
+            handle.write(f"{stamp} [{category}] {clean}\n")
+    except Exception:
+        pass
+
+
+def _network_snapshot():
+    try:
+        result=base.run("hostname","-I")
+        return " ".join(result.stdout.split()) or "unavailable"
+    except Exception:return "unavailable"
+
+
+def _diagnostic_state():
+    twitch=base.twitch_status()
+    return {
+        "connected":bool(twitch.get("connected")),
+        "listening":bool(twitch.get("listening")),
+        "session_id":str(base._eventsub_state.get("session_id") or ""),
+        "last_error":str(twitch.get("last_error") or ""),
+        "subscriptions":tuple(twitch.get("subscriptions") or []),
+        "reauth_required":bool(twitch.get("reauth_required")),
+    }
+
+
+async def diagnostic_monitor():
+    previous=None
+    previously_enabled=False
+    last_health=0.0
+    while True:
+        enabled=diagnostic_enabled()
+        if enabled and not previously_enabled:
+            diagnostic_log("SYSTEM",f"Diagnostic logging enabled · build {installed_version()} · IP {_network_snapshot()}")
+        if enabled:
+            state=_diagnostic_state()
+            if previous is None:
+                diagnostic_log("TWITCH",f"Initial state connected={state['connected']} listening={state['listening']} session={state['session_id'] or '-'} subscriptions={len(state['subscriptions'])} reauth_required={state['reauth_required']}")
+            else:
+                if state["connected"]!=previous["connected"]:
+                    diagnostic_log("TWITCH",f"OAuth connection state changed: {previous['connected']} -> {state['connected']}")
+                if state["listening"]!=previous["listening"]:
+                    diagnostic_log("TWITCH",f"EventSub listening changed: {previous['listening']} -> {state['listening']}")
+                if state["session_id"]!=previous["session_id"]:
+                    diagnostic_log("TWITCH",f"EventSub session changed: {previous['session_id'] or '-'} -> {state['session_id'] or '-'}")
+                if state["subscriptions"]!=previous["subscriptions"]:
+                    diagnostic_log("TWITCH",f"Subscriptions changed: {len(previous['subscriptions'])} -> {len(state['subscriptions'])} · {', '.join(state['subscriptions']) or 'none'}")
+                if state["last_error"]!=previous["last_error"] and state["last_error"]:
+                    diagnostic_log("TWITCH ERROR",state["last_error"])
+                if state["reauth_required"]!=previous["reauth_required"]:
+                    diagnostic_log("TWITCH",f"Reauthorization required changed: {previous['reauth_required']} -> {state['reauth_required']}")
+            previous=state
+            now=time.monotonic()
+            if now-last_health>=60:
+                last_event=base._eventsub_state.get("last_event")
+                age=(int(time.time())-int(last_event)) if last_event else None
+                diagnostic_log("HEALTH",f"IP {_network_snapshot()} · connected={state['connected']} listening={state['listening']} subscriptions={len(state['subscriptions'])} last_event_age={age if age is not None else 'none'}s")
+                last_health=now
+        else:
+            previous=None
+        previously_enabled=enabled
+        await asyncio.sleep(0.5)
 
 
 async def publish_limited(item):
@@ -49,11 +146,22 @@ rumble=RumbleConnector(base.publish,base.CREDS_DIR/"rumble.json")
 
 
 @app.on_event("startup")
-async def start_rumble_connector():rumble.start()
+async def start_wrapper_services():
+    global _diag_task
+    rumble.start()
+    if _diag_task is None or _diag_task.done():
+        _diag_task=asyncio.create_task(diagnostic_monitor())
 
 
 @app.on_event("shutdown")
-async def stop_rumble_connector():await rumble.stop()
+async def stop_wrapper_services():
+    global _diag_task
+    diagnostic_log("SYSTEM","FeedNode backend shutting down")
+    await rumble.stop()
+    if _diag_task and not _diag_task.done():
+        _diag_task.cancel()
+        try:await _diag_task
+        except asyncio.CancelledError:pass
 
 
 @app.get("/api/rumble/status")
@@ -80,6 +188,37 @@ async def rumble_test():
 @app.post("/api/rumble/disconnect")
 def rumble_disconnect():
     rumble.disconnect();config=base.load_config();config.setdefault("platforms",{}).setdefault("rumble",{})["enabled"]=False;base.save_config(config);return {"ok":True}
+
+
+@app.get("/api/diagnostics/status")
+def diagnostic_status():
+    size=0
+    for path in (DIAG_OLD,DIAG_LOG):
+        try:size+=path.stat().st_size
+        except Exception:pass
+    return {"ok":True,"enabled":diagnostic_enabled(),"bytes":size,"path":"feednode-diagnostics.txt"}
+
+
+@app.get("/api/diagnostics/export")
+def diagnostic_export():
+    parts=[f"FeedNode Diagnostic Export\nBuild: {installed_version()}\nGenerated: {datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')}\nIP: {_network_snapshot()}\n\n"]
+    state=_diagnostic_state()
+    parts.append("Current Twitch State\n")
+    parts.append(f"connected={state['connected']}\nlistening={state['listening']}\nsession_id={state['session_id'] or '-'}\nsubscriptions={', '.join(state['subscriptions']) or 'none'}\nlast_error={state['last_error'] or 'none'}\nreauth_required={state['reauth_required']}\n\n")
+    for label,path in (("Previous rotated log",DIAG_OLD),("Current log",DIAG_LOG)):
+        parts.append(f"===== {label} =====\n")
+        try:parts.append(path.read_text(encoding="utf-8",errors="replace"))
+        except Exception:parts.append("(no log data)\n")
+        parts.append("\n")
+    filename=f"feednode-diagnostics-{datetime.now().strftime('%Y%m%d-%H%M%S')}.txt"
+    return PlainTextResponse("".join(parts),headers={"Content-Disposition":f'attachment; filename="{filename}"'})
+
+
+@app.post("/api/diagnostics/clear")
+def diagnostic_clear():
+    DIAG_LOG.unlink(missing_ok=True);DIAG_OLD.unlink(missing_ok=True)
+    diagnostic_log("SYSTEM","Diagnostic log cleared")
+    return {"ok":True}
 
 
 async def _run_system_action(*args):
