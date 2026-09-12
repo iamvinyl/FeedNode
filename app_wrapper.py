@@ -187,7 +187,7 @@ async def rumble_test():
 
 @app.post("/api/rumble/disconnect")
 def rumble_disconnect():
-    rumble.disconnect();config=base.load_config();config.setdefault("platforms",{}).setdefault("rumble",{})["enabled"]=False;base.save_config(config);return {"ok":True}
+    rumble.disconnect();return {"ok":True}
 
 
 @app.get("/api/diagnostics/status")
