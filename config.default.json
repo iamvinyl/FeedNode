@@ -76,7 +76,7 @@
     "diagnostic_logging": false
   },
   "platforms": {
-    "twitch": {"enabled": true},
+    "twitch": {"enabled": false},
     "youtube": {"enabled": false},
     "rumble": {"enabled": false},
     "kick": {"enabled": false}
