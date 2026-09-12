@@ -9,8 +9,6 @@ from queue import Empty
 
 import pygame
 
-# This file lives in scripts/ inside the release. Add the release root so the
-# normal display modules remain the single source of truth for feed rendering.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import stats_display as stats  # noqa: E402
@@ -67,6 +65,26 @@ def configured_feed_limit(cfg):
     except Exception:
         value = 100
     return max(10, min(250, value))
+
+
+def draw_build_footer_with_ip(surface, cfg, fonts, height):
+    if height <= 0:
+        return
+    style = cfg.get("style", {})
+    panel = base.color(style.get("stats_bar_panel", style.get("panel")), "#10141A")
+    muted = base.color(style.get("muted"), "#8C98A6")
+    y = surface.get_height() - height
+    pygame.draw.rect(surface, panel, pygame.Rect(0, y, surface.get_width(), height))
+
+    build = fonts["build_footer"].render(f"FEEDNODE · BUILD v{stats.installed_build()}", True, muted)
+    ip = stats._lan_ip() or "NO IP"
+    network = fonts["build_footer"].render(f"IP {ip}", True, muted)
+    pad = 12
+    surface.blit(build, (pad, y + (height - build.get_height()) // 2))
+    surface.blit(network, (max(pad, surface.get_width() - network.get_width() - pad), y + (height - network.get_height()) // 2))
+
+
+stats.draw_build_footer = draw_build_footer_with_ip
 
 
 class MatrixEffect:
