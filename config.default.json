@@ -72,7 +72,8 @@
   },
   "system": {
     "max_feed_items": 100,
-    "update_feed": "stable"
+    "update_feed": "stable",
+    "diagnostic_logging": false
   },
   "platforms": {
     "twitch": {"enabled": true},
