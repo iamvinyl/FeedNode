@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>FeedNode Settings</title>
-  <link rel="stylesheet" href="/static/admin.css?v=0.4.7-beta.4">
+  <link rel="stylesheet" href="/static/admin.css?v=0.4.7-beta.5">
 </head>
 <body>
 <main class="wrap wide">
@@ -121,6 +121,6 @@ async function clearDiagnosticLog(){if(!confirm('Clear the saved FeedNode diagno
 async function saveSystemSettings(){const el=document.getElementById('max_feed_items');const value=Math.max(10,Math.min(250,parseInt(el.value||'100',10)));el.value=value;window.FEEDNODE_CONFIG.system=window.FEEDNODE_CONFIG.system||{};window.FEEDNODE_CONFIG.system.max_feed_items=value;window.FEEDNODE_CONFIG.system.update_feed=updateFeedEl.value==='beta'?'beta':'stable';window.FEEDNODE_CONFIG.system.diagnostic_logging=diagnosticLoggingEl.checked;await saveConfig();await checkFirmware(true);await refreshDiagnosticStatus();}
 refreshDiagnosticStatus();
 </script>
-<script src="/static/settings.js?v=0.4.7-beta.4"></script>
+<script src="/static/settings.js?v=0.4.7-beta.5"></script>
 </body>
 </html>
